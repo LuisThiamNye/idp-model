@@ -24,7 +24,7 @@
   (turn-straight)
   (stop)
   (state/reset-real!)
-  (swap! state/*real assoc :angle 270)
+  (swap! state/*real assoc :angle 90)
   
   (state/tick! 1)
   )

@@ -19,6 +19,31 @@
 
 (def *last-tick-time (atom 0))
 (def *sim-dt (atom 20))
+(def *sim-speed (atom 2))
+
+(defn sim-tick! [dt]
+  (idp.robot.brain.travel/tick!)
+  (robot.state/tick! dt))
+
+(def *stop-sim? (atom false))
+
+(defn sim-tick-recurring []
+  (if @*stop-sim?
+    (reset! *stop-sim? false)
+    (let [dt @*sim-dt
+          now (hui/now)
+          del (max 0 (- (+ (/ dt @*sim-speed)
+                          @*last-tick-time) now))]
+      ; (prn del)
+      (reset! *last-tick-time now)
+      (sim-tick! dt)
+      (hui/schedule #(sim-tick-recurring)
+        del))))
+
+(sim-tick-recurring)
+(comment
+  (reset! *stop-sim? true)
+  )
 
 (def ui-arena
   (ui/mouse-listener
@@ -57,11 +82,9 @@
                 (ui/canvas
                   {:on-paint
                    (fn [ctx _ _]
-                     (let [dt @*sim-dt]
-                       (hui/schedule
-                         #(do (robot.state/tick! dt)
-                            (window/request-frame (:window ctx)))
-                (max 0 (- (+ dt @*last-tick-time) (hui/now))))))})))))))))
+                     (hui/schedule
+                       #(window/request-frame (:window ctx))
+                       0))})))))))))
 
 (def app
   (common/with-context
