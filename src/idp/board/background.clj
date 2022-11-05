@@ -1,6 +1,7 @@
 (ns idp.board.background
   (:require
     [idp.board.params :as params]
+    [idp.board.geo :as board.geo]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.core :as core]
     [io.github.humbleui.protocols :as protocols]
@@ -74,120 +75,63 @@
                             board-width (- board-height ramp-margin-bottom))
             ramp-bg)
            
-           ;; top line
-           (.drawRect cnv (Rect.
-                           (+ line-left-margin line-turn-outer-radius)
-                           line-top-margin
-                           line-horiz-xr
-                           (+ line-top-margin line-width))
-            line-fill)
-           ;; right line
-           (.drawRect cnv (Rect.
-                           (- board-width line-right-margin line-width)
-                           (+ line-top-margin line-turn-outer-radius)
-                           (- board-width line-right-margin)
-                           (- board-height (+ line-bottom-margin line-turn-outer-radius)))
-            line-fill)
-           ;; bottom line
-           (.drawRect cnv (Rect.
-                            (+ line-left-margin line-turn-outer-radius)
-                            (- board-height line-bottom-margin line-width)
-                            line-horiz-xr
-                            line-bottom-yb)
-            line-fill)
-           ;; left lines
-           (.drawRect cnv (Rect.
-                           line-left-margin
-                           (+ line-top-margin line-turn-outer-radius)
-                           (+ line-left-margin line-width)
-                           tunnel-y)
-            line-fill)
-           (.drawRect cnv (Rect.
-                           line-left-margin
-                           (+ tunnel-y tunnel-length)
-                           (+ line-left-margin line-width)
-                           (- board-height (+ line-bottom-margin line-turn-outer-radius)))
-            line-fill)
-           
-           ;; Turns
-           (.drawArc cnv
-             line-left-margin line-top-margin
-             (+ line-left-margin turn-square-length)
-             (+ line-top-margin turn-square-length)
-             180 ;; start
-             90 ;; sweep
-             true ;; includeCentre
-             line-fill)
-           (let [l (+ line-left-margin line-width)
-                 t (+ line-top-margin line-width)]
-             (.drawArc cnv l t
-              (+ l turn-insquare-length)
-              (+ t turn-insquare-length)
-              180 ;; start
-              90 ;; sweep
-              true ;; includeCentre
-               board-bg))
-           
-           (.drawArc cnv
-             (- board-width (+ line-right-margin turn-square-length))
-             line-top-margin
-             (- board-width line-left-margin)
-             (+ line-top-margin turn-square-length)
-             270 ;; start
-             90 ;; sweep
-             true ;; includeCentre
-             line-fill)
-           (let [r (- board-width (+ line-right-margin line-width))
-                 t (+ line-top-margin line-width)]
-             (.drawArc cnv
-               (- r turn-insquare-length)
-               t r
-               (+ t turn-insquare-length)
-               270 ;; start
-               90 ;; sweep
-               true ;; includeCentre
-               board-bg))
-           
-           (.drawArc cnv
-             (- board-width (+ line-right-margin turn-square-length))
-             (- board-height (+ line-bottom-margin turn-square-length))
-             (- board-width line-left-margin)
-             (- board-height line-bottom-margin)
-             0 ;; start
-             90 ;; sweep
-             true ;; includeCentre
-             line-fill)
-           (let [r (- board-width (+ line-right-margin line-width))
-                 b (- board-height (+ line-bottom-margin line-width))]
-             (.drawArc cnv
-               (- r turn-insquare-length)
-               (- b turn-insquare-length)
-               r b
-               0 ;; start
-               90 ;; sweep
-               true ;; includeCentre
-               board-bg))
-           
-           (.drawArc cnv
-             line-left-margin
-             (- board-height (+ line-bottom-margin turn-square-length))
-             (+ line-left-margin turn-square-length)
-             (- board-height line-bottom-margin)
-             90 ;; start
-             90 ;; sweep
-             true ;; includeCentre
-             line-fill)
-           (let [l (+ line-left-margin line-width)
-                 b (- board-height (+ line-bottom-margin line-width))]
-             (.drawArc cnv
-               l
-               (- b turn-insquare-length)
-               (+ l turn-insquare-length)
-               b
-               90 ;; start
-               90 ;; sweep
-               true ;; includeCentre
-               board-bg))
+           ;; Lines
+           (let [->rect #(Rect. (:left %) (:top %) (:right %) (:bottom %))
+                 {:keys [top-rect
+                         right-rect
+                         bottom-rect
+                         left-top-rect
+                         left-bottom-rect
+                         tl-turn-centre
+                         tr-turn-centre
+                         bl-turn-centre
+                         br-turn-centre]} (board.geo/get-line-geo)
+                 turn-rect (fn [{:keys [x y]} radius]
+                             (.inflate (Rect. x y x y) radius))
+                 draw-sector
+                 (fn [^Canvas cnv rect start-deg sweep-deg ^Paint paint]
+                   (.drawArc cnv
+                     (:x rect) (:y rect)
+                     (:right rect) (:bottom rect)
+                     start-deg
+                     sweep-deg
+                     true ;; includeCentre
+                     paint))]
+             (.drawRect cnv (->rect top-rect) line-fill)
+             (.drawRect cnv (->rect right-rect) line-fill)
+             (.drawRect cnv (->rect bottom-rect) line-fill)
+             (.drawRect cnv (->rect left-top-rect) line-fill)
+             (.drawRect cnv (->rect left-bottom-rect) line-fill)
+             ;; Turns
+             (draw-sector cnv
+               (turn-rect tl-turn-centre line-turn-outer-radius)
+               180 90 line-fill)
+             (draw-sector cnv
+               (turn-rect tl-turn-centre line-turn-radius)
+               180 90 board-bg)
+             
+             (draw-sector cnv
+               (turn-rect tr-turn-centre line-turn-outer-radius)
+               270 90 line-fill)
+             (draw-sector cnv
+               (turn-rect tr-turn-centre line-turn-radius)
+               270 90 board-bg)
+             
+             (draw-sector cnv
+               (turn-rect bl-turn-centre line-turn-outer-radius)
+               90 90 line-fill)
+             (draw-sector cnv
+               (turn-rect bl-turn-centre line-turn-radius)
+               90 90 board-bg)
+             
+             (draw-sector cnv
+               (turn-rect br-turn-centre line-turn-outer-radius)
+               0 90 line-fill)
+             (draw-sector cnv
+               (turn-rect br-turn-centre line-turn-radius)
+               0 90 board-bg)
+             
+             )
            
            ;; Line Boxes
            (let [shrink-outer
@@ -217,17 +161,19 @@
                line-box-green-fill))
            
            ;; Collection lines
-           (.drawRect cnv (Rect/makeXYWH line-collect-left-x (+ line-top-margin line-width)
-                            line-width line-collect-offset-length)
-             line-fill)
-           (.drawRect cnv (Rect/makeXYWH (- board-width line-collect-right-margin line-width) (+ line-top-margin line-width)
-                            line-width line-collect-offset-length)
-             line-fill)
-           (let [ymid (+ line-top-margin (/ line-width 2))]
-             (.drawRect cnv (Rect/makeXYWH (+ line-collect-left-x line-collect-left-spacing)
-                              (- ymid (/ line-collect-centre-length 2))
-                              line-width line-collect-centre-length)
-               line-fill))
+           (let [{:keys [collect-left-rect
+                         collect-centre-rect
+                         collect-right-rect]}
+                 (board.geo/get-line-geo)
+                 draw-rect
+                 (fn [rect]
+                   (.drawRect cnv
+                     (Rect/makeLTRB (:left rect) (:top rect)
+                       (:right rect) (:bottom rect))
+                     line-fill))]
+             (draw-rect collect-left-rect)
+             (draw-rect collect-centre-rect)
+             (draw-rect collect-right-rect))
            
            )))}))
 
