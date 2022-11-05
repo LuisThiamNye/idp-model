@@ -1,0 +1,49 @@
+;;
+{:paths ["src"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.12.0-alpha1"}
+        
+        chic/chic {:local/root "../chic"}
+        
+        io.github.humbleui/humbleui {:git/url "https://github.com/HumbleUI/HumbleUI"
+                                     :git/sha "33fb03efc8feb10cfaf4d0e4326fb002d0f81ebb"}
+        io.github.humbleui/types$clojure {:mvn/version "0.1.2"}
+        io.github.humbleui/jwm {:mvn/version "0.4.10" :exclusions [io.github.humbleui/types]}
+        io.github.humbleui/skija-windows {:mvn/version "0.106.0" :exclusions [io.github.humbleui/types]}
+        
+        zprint/zprint {:mvn/version "1.2.4"}
+        mvxcvi/puget {:mvn/version "1.3.2"}
+        com.ibm.icu/icu4j {:mvn/version "72.1"}
+        proteus/proteus {:mvn/version "0.1.6"}
+        cnuernber/dtype-next {:mvn/version "9.033"}
+        babashka/fs {:mvn/version "0.1.11"}
+        org.suskalo/farolero {:mvn/version "1.4.4"}
+        org.clj-commons/primitive-math {:mvn/version "1.0.0"}
+        lambdaisland/regal {:mvn/version "0.0.143"}
+        potemkin/potemkin {:mvn/version "0.4.6"}
+        metosin/malli {:mvn/version "0.8.4"}
+        riddley/riddley {:mvn/version "0.2.0"}
+        net.cgrand/xforms {:git/url "https://github.com/cgrand/xforms"
+                           :git/tag "v0.19.4"
+                           :git/sha "550dbc1"}
+        org.clojure/core.match {:mvn/version "1.0.0"}
+        com.taoensso/encore {:mvn/version "3.31.0"}
+        
+        org.slf4j/slf4j-jdk14 {:mvn/version "2.0.3"}}
+
+ :aliases {:dev
+           {:extra-paths []
+            :extra-deps  {nrepl/nrepl {:mvn/version "1.0.0"}
+                          philoskim/debux {:mvn/version "0.8.2"}}
+            :jvm-opts ["-Xmx24G" ;; max heap size
+                       "--enable-preview"
+                       "--enable-native-access=ALL-UNNAMED"
+                       "-XX:+UseShenandoahGC"
+                       "-ea" ;; enable assertions
+                       
+                       ;; https://docs.cider.mx/cider/troubleshooting.html#empty-java-stacktraces
+                       "-XX:-OmitStackTraceInFastThrow"
+                       ]
+            :main-opts ["-m" "idp.main"]}
+           }}
+

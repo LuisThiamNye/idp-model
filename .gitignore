@@ -1,0 +1,7 @@
+.lsp/.cache
+.clj-kondo/.cache
+*.log
+.cpcache
+.nrepl-port
+*.class
+*.sublime-workspace
