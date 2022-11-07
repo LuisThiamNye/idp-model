@@ -10,8 +10,7 @@
 (defn tick! []
   (let [{:keys [line-sensor-1
                 line-sensor-2
-                line-sensor-3]} @robot.state/*real
-       #_#_ {:keys [deviation]} @*state]
+                line-sensor-3]} @robot.state/*real]
     (match [line-sensor-1
             line-sensor-2
             line-sensor-3]
@@ -27,3 +26,5 @@
         :left (cmd/turn-right)
         :none (cmd/turn-straight)
         :right (cmd/turn-left)))))
+
+
