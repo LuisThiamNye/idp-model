@@ -6,36 +6,37 @@
 
 ;; spacing is independent of thickness (not the gap)
 (def dims
-  {:board-width 3000
-   :board-height 3000
+  {:board-width (/ (+ 2400 2410) 2)
+   :board-height 2405
    
    :line-width 19
-   :line-collect-left-x 800
-   :line-collect-left-spacing 700
-   :line-collect-right-margin 800
-   :line-collect-offset-length 400
-   :line-collect-centre-length 200
-   :line-turn-radius 300
+   :line-collect-left-x 789
+   :line-collect-left-spacing 400
+   :line-collect-right-margin 791
+   :line-collect-offset-length 183 ; length of protrusion
+   :line-collect-centre-length 195 ; end to end
+   :line-turn-radius 130 ;; approx
    
-   :line-left-margin 200
-   :line-top-margin 400
-   :line-right-margin 200
-   :line-bottom-margin 700
+   :line-left-margin 175
+   :line-top-margin 290
+   :line-right-margin 190
+   :line-bottom-margin 540
    
-   :line-box-length 400 ;; outer length
-   :line-box-path-length 200
-   :line-left-box-path-x 650
-   :line-left-boxes-path-spacing 800
-   :line-right-boxes-path-spacing 800
+   :line-box-length 350 ;; outer length
+   :line-box-path-length 165
+   :line-left-box-path-x 492
+   :line-left-boxes-path-spacing 696
+   :line-right-boxes-path-spacing 693
    
-   :tunnel-y 900
-   :tunnel-length 1000
-   :tunnel-width 400
-   :tunnel-wall-thickness 20
+   :tunnel-y 845
+   :tunnel-length 500
+   :tunnel-width 345
+   :tunnel-wall-thickness 13
    
-   :ramp-width 600
-   :ramp-margin-top 900
-   :ramp-margin-bottom 1100
+   :ramp-width 400
+   :ramp-margin-top 688
+   :ramp-margin-bottom 895
+   :ramp-slope-length 160 ;; horizontal length
    })
 
 (def theme

@@ -5,7 +5,7 @@
 (defn go-forwards []
   (swap! state/*real assoc :velocity 100))
 
-(def std-angular-v 20)
+(def std-angular-v 40)
 
 (defn turn-right []
   (swap! state/*real assoc :angular-velocity std-angular-v))

@@ -27,7 +27,7 @@
                         line-sensor-fill
                         line-sensor-radius]} (:theme ctx)
                 xmid (/ width 2)
-                ymid (/ length 2)
+                ymid centre-y
                 {:keys [angle]
                  {robot-x :x
                   robot-y :y} :position} @(:*robot-real-state ctx)]
@@ -42,7 +42,7 @@
               (.drawCircle cnv (+ xmid line-sensors-spacing) line-sensors-y line-sensor-radius line-sensor-fill)
               (.drawCircle cnv (- xmid line-sensors-spacing) line-sensors-y line-sensor-radius line-sensor-fill)
               ;; centre
-              (.drawCircle cnv xmid (/ length 2) line-sensor-radius border-stroke)
+              (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
               
               )))}))))
 

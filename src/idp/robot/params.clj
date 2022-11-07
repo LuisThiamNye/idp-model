@@ -3,10 +3,10 @@
     [io.github.humbleui.paint :as paint]))
 
 (def dims
-  {:width 200
-   :length 300
-   :centre-y 150
-   :line-sensors-y 50
+  {:width 180
+   :length 230
+   :centre-y 170
+   :line-sensors-y 170; 40
    :line-sensors-spacing 30})
 
 (def theme
@@ -16,10 +16,10 @@
    :line-sensor-radius 5})
 
 (defn get-line-sensor-pos [n]
-  (let [{:keys [line-sensors-spacing
+  (let [{:keys [line-sensors-spacing centre-y
                 length line-sensors-y]} dims
         offset (case n
                  1 (- line-sensors-spacing)
                  2 0
                  3 line-sensors-spacing)]
-    {:x offset :y (- line-sensors-y (/ length 2))}))
+    {:x offset :y (- line-sensors-y centre-y)}))
