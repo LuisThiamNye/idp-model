@@ -6,60 +6,76 @@
 (defn frac->byte [n]
   (unchecked-int (Math/round (* 255. n))))
 
-(defn msg-motor-speed ^String [n speed]
-  (assert (<= 0 speed 255))
-  (assert (<= 1 n 2))
-  (let [mul (Math/floor (/ speed 64))
-        mag (- speed (* mul 64))]
-    (str "m" n (char (+ 40 mag)) (char (+ 40 mul)))))
+(defn as-bitn [bool lshift]
+  (if bool
+    (bit-shift-left 1 lshift)
+    0))
 
-(defn set-motor-speed [n speed]
-  (telnet/send-line! (msg-motor-speed n speed)))
+(defn make-insn-byte [{:keys [set-motor? get-line-data? get-imu-data?
+                              motor1-rev? motor2-rev?]}]
+  (bit-or
+    (as-bitn set-motor? 7)
+    (as-bitn set-motor? 6)
+    (as-bitn get-line-data? 5)
+    (as-bitn get-imu-data? 4)
+    (as-bitn motor1-rev? 2)
+    (as-bitn motor2-rev? 1)))
 
-; (defn reset-state!)
+(defn decode-response [^"[B" res-bytes]
+  (let [linef-byte (aget res-bytes 0)]
+    {:line-sensor-1 (bit-test linef-byte 7) ; true if white
+     :line-sensor-2 (bit-test linef-byte 6)
+     :line-sensor-3 (bit-test linef-byte 5)}))
+
 
 (def *state
+  (atom {:line-sensor-1 false
+         :line-sensor-2 false
+         :line-sensor-3 false}))
+
+(def *input
   (atom {:motor-1 0
          :motor-2 0}))
 
-(defn set-state [state]
-  (let [[_ news _] (data/diff @*state state)
-        sb (StringBuilder.)]
-    (run!
-      (fn [[k v]]
-        (.append sb 
-          (case k
-            :motor-1
-            (msg-motor-speed 1 v)
-            :motor-2
-            (msg-motor-speed 2 v))))
-      news)
-    (let [s (str sb)]
-      (println "Sending:" (mapv int s))
-      (when (< 0 (count s))
-        (telnet/send-line! s)))
-    (reset! *state state)))
+(defn tick! [_dt]
+  (let [{:keys [motor-1 motor-2]} @*input]
+    (telnet/send-bytes!
+     [(make-insn-byte {:set-motor? true
+                       :motor1-rev? (neg? motor-1)
+                       :motor2-rev? (neg? motor-2)})
+      (abs motor-1) (abs motor-2)
+      0 0 0]))
+  (let [res (telnet/read-all-bytes!)]
+    (when res
+      (reset! *state
+        (decode-response res)))))
+
+
 
 (comment
   (set-motor-speed 1 255)
-  (msg-motor-speed 1 0)
   
-  (set-state
-    {:motor-1 0
-     :motor-2 0})
+  (tick! 0)
+  (reset! *input
+    {:motor-1 100
+     :motor-2 100})
+
+  (telnet/send-bytes!
+    [(make-insn-byte {:set-motor? true
+                      :motor1-rev? false
+                      :motor2-rev? false})
+     0 0
+     0 0 0])
   
-  (set-state
-    {:motor-1 0
-     :motor-2 0})
-  
-  (char 255)
-  (Character/toString 255)
-  
-  (let [speed 128
-        extended? (< 127 speed)
-        s (if extended?
-            (- speed 128) speed)]
-    (char (if extended? 1 0))
-    )
+  (let [_ (telnet/send-bytes!
+            [(make-insn-byte {:set-motor? true
+                              :motor1-rev? false
+                              :motor2-rev? false})
+             0 0
+             0 0 0])
+        _ (Thread/sleep 200)
+        res (telnet/read-all-bytes!)]
+    (when res
+      (decode-response res)))
   
   )

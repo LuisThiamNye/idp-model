@@ -58,3 +58,6 @@
                              (robot.params/get-line-sensor-pos 3)))
           :position position
           :angle angle)))))
+
+; (def *brain
+;   (atom {:}))

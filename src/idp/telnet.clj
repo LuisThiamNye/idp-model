@@ -3,9 +3,9 @@
     (java.net Socket InetSocketAddress)
     (java.io
       PrintWriter BufferedReader InputStreamReader
-      Reader IOException)))
+      Reader IOException InputStream OutputStream)))
 
-(def hostname "192.168.137.247")
+(def hostname "192.168.137.188")
 
 (def *conn
   (agent
@@ -35,8 +35,8 @@
                     (InetSocketAddress. hostname 23)
                     3000 ;; timeout
                     )
-                out (PrintWriter. (.getOutputStream socket) false)
-                in (BufferedReader. (InputStreamReader. (.getInputStream socket)))]
+                out (.getOutputStream socket)
+                in (.getInputStream socket)]
             (.flush out)
             {:socket socket
              :out out
@@ -46,25 +46,31 @@
             (prn e)
             conn))))))
 
-(defn send-line! [s]
-  (let [{:keys [^PrintWriter out]} @*conn]
-    (.println out s)
+; (defn send-line! [s]
+;   (let [{:keys [^PrintWriter out]} @*conn]
+;     (.println out s)
+;     (.flush out)))
+
+(defn send-bytes! [s]
+  (let [{:keys [^OutputStream out]} @*conn]
+    (.write out
+      (byte-array s))
     (.flush out)))
 
-(defn read-all! []
-  (let [{:keys [^Reader in]} @*conn]
+(defn read-all-bytes! []
+  (let [{:keys [^InputStream in]} @*conn]
     (when in
-      (let [sb (StringBuilder.)]
-        (loop []
-          (when (.ready in)
-            (.appendCodePoint sb (.read in))
-            (recur)))
-        (str sb)))))
+      (let [nbytes (.available in)]
+        (when (< 0 nbytes)
+          (.readNBytes in nbytes))))))
 
 
 (reset-conn!)
 
-(send-line! "m1a")
+
+
+;; bytes
+;; 
 
 (read-all!)
 
