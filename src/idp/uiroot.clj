@@ -22,7 +22,7 @@
 (def *sim-speed (atom 2))
 
 (defn sim-tick! [dt]
-  (idp.robot.brain.travel/tick!)
+  ; (idp.robot.brain.travel/tick!)
   (robot.state/tick! dt))
 
 (def *stop-sim? (atom false))
