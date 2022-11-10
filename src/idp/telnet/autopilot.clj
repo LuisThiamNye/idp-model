@@ -3,6 +3,7 @@
     [io.github.humbleui.core :as hui]
     [idp.robot.brain.travel :as travel]
     [idp.telnet.api :as api]
+    [idp.telnet :as net]
     ))
 
 (def *mode (atom :travel))
@@ -10,14 +11,15 @@
 (defn tick! [dt]
   ; (idp.robot.brain.travel/tick!)
   #_(robot.state/tick! dt)
-  (println "tick " dt)
-  (Thread/sleep 100)
+  ; (println "tick " dt (:status @net/*conn))
+  (Thread/sleep 50)
   (api/tick! dt)
-  (prn @api/*state)
-  (prn @api/*input)
-  
-  (when (= :travel @*mode)
-    (travel/tick!))
+  (when (= :connected (:status @net/*conn))
+    (prn @api/*state)
+    ; (prn @api/*input)
+    
+    (when (= :travel @*mode)
+      #_(travel/tick!)))
   )
 
 (def *stop-loop? (atom false))
@@ -68,7 +70,13 @@
   (reset! *mode :travel)
   (reset! *mode :none)
   (swap! api/*input assoc
-      :motor-1 50
+      :motor-1 0
       :motor-2 0)
+  
+  @*loop-thread
+  
+  (.interrupt @*loop-thread)
+  
+  
   
   )
