@@ -20,7 +20,7 @@
       (when (some? x) (nrepl.server/stop-server x))
       (let [server (nrepl.server/start-server
                      ;:port 7888
-                     {})]     
+                     {})]  
         (try
           (alter-var-root #'nrepl-transport
             (constantly (nrepl/connect :port (:port server))))

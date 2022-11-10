@@ -113,7 +113,6 @@
 (comment
   (reset-conn!)
   
-  84-cc-a8-2e-96-18
   
   )
 
