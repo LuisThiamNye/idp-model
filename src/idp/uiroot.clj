@@ -93,17 +93,20 @@
 
 (reset! state/*app app)
 
-(defn start-ui! [& _args]
-  (ui/start-app!
+(defn open-sim-window! []
+  (app/doui-async
     (deliver state/*window
       (ui/window
         {:title    "IDP"
-         :bg-color 0xFFFFFFFF}
-        state/*app)))
+         :bg-color 0xFFFFFFFF
+         :exit-on-close? false}
+        state/*app))))
+
+(defn start-ui! [& _args]
+  (ui/start-app!)
   ; (reset! debug/*enabled? true)
   #_(common/redraw))
 
 (comment
-  (app/doui-async
-    (start-ui!))
+  (open-sim-window!)
   )

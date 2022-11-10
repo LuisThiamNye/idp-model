@@ -11,13 +11,13 @@
          :n-horiz-found 0
          :deviation :none}))
 
-(defn tick-simple-follow []
+#_(defn tick-simple-follow []
   (let [{:keys [line-sensor-1
                 line-sensor-2
                 line-sensor-3]} @api/*state]
-    (match [line-sensor-1
-            line-sensor-2
-            line-sensor-3]
+    (match [line-sensor-left
+            line-sensor-centre
+            line-sensor-right]
       [_ true _]
       (swap! *state assoc :deviation :none)
       [true false false]
@@ -31,20 +31,17 @@
           sforward 150]
       (case deviation
         :left
-        (do #_(prn "turn right")
-          (swap! api/*input assoc
-            :motor-1 (+ sturnf sturn)
-            :motor-2 (+ sturnf (- sturn))))
+        (swap! api/*input assoc
+          :motor-1 (+ sturnf sturn)
+          :motor-2 (+ sturnf (- sturn)))
         :none
-        (do #_(prn "turn forwards")
-          (swap! api/*input assoc
-            :motor-1 sforward
-            :motor-2 sforward))
+        (swap! api/*input assoc
+          :motor-1 sforward
+          :motor-2 sforward)
         :right
-        (do #_(prn "turn left")
-          (swap! api/*input assoc
-            :motor-1 (+ sturnf (- sturn))
-            :motor-2 (+ sturnf sturn)))))))
+        (swap! api/*input assoc
+          :motor-1 (+ sturnf (- sturn))
+          :motor-2 (+ sturnf sturn))))))
 
 (defn tick-exit-start []
   (let
@@ -60,15 +57,21 @@
                  line-sensor-2
                  line-sensor-3
                  line-sensor-4]))]
-    (if horiz?
-      (if over-horiz?
-        nil
-        (if (<= 1 n-horiz-found)
-          (swap! *state :mode :stop)
-          (swap! *state assoc
-            :over-horiz? true
-            :n-horiz-found (inc n-horiz-found))))
-      (swap! *state :over-horiz? false))))
+    (match [horiz? over-horiz?]
+      [true true]
+      nil
+      [true false] ;; entered horiz
+      (if (<= 1 n-horiz-found)
+        ;; found the T-junction
+        (swap! *state assoc :mode :stop)
+        ;; found the box edge
+        (swap! *state assoc
+          :over-horiz? true
+          :n-horiz-found (inc n-horiz-found)))
+      [false true] ;; exit horiz
+      (swap! *state :over-horiz? false)
+      [false false]
+      nil)))
 
 (defn tick! []
   (case (:mode @*state)

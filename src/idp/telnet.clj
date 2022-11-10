@@ -1,4 +1,5 @@
 (ns idp.telnet
+  "Disclaimer: not actually telnet"
   (:require
     [clojure.java.shell :as shell])
   (:import
@@ -14,11 +15,11 @@
         [_ ip] (re-find #"\s(\S+)\s+84-cc-a8-2e-96-18" out)]
     ip))
 
-(defn wait-for-ip []
+(defn wait-for-ip! []
   (loop []
     (if-some [ip (get-server-ip)]
       ip
-      (do (Thread/sleep 50)
+      (do (Thread/sleep 30)
         (recur)))))
 
 (def *conn
@@ -56,7 +57,7 @@
          (.start (Thread/ofVirtual)
            (fn []
              (let
-               [hostname (wait-for-ip)
+               [hostname (wait-for-ip!)
                 new-conn
                 (try
                   (println "Connecting to " hostname)
@@ -115,28 +116,3 @@
   
   
   )
-
-
-; set motor speed (n, speed)
-; get-data => line-follower (3-4), IMU (6), distance/ultrasound
-; LDR
-; set LEDs - high/low ρ
-; grabber arm
-
-;; length encoding
-
-"
-
-m1_m2_
-
-Message format:
-
-*[
-1b: command type - m
-...
-]
-
-Response format:
-6*4b: accelerometer (X Y Z AngX AngY AngZ)
-1b: line sensor permutation
-"

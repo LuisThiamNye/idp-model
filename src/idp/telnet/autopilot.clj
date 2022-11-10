@@ -56,9 +56,8 @@
                 (reset! *stop-loop? false)
                 (recur t2)))))))))
 
-(start-loop!)
-
 (comment
+  (start-loop!)
   
   (do
     (reset! *stop-loop? true)

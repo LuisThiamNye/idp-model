@@ -7,6 +7,7 @@
     [nrepl.cmdline]
     [nrepl.server]
     [idp.uiroot]
+    [idp.telnet.autopilot]
     [chic.debug.nrepl :as debug.nrepl]))
 
 ;; (set! *warn-on-reflection* true)
@@ -37,16 +38,14 @@
   (fs/delete-if-exists ".nrepl-port"))
 
 (defn start-app! []
-  (enc/reset-val! *threads "app-start"
-    (-> (Thread/ofVirtual)
-      (.name "idp.main app start")
-      (.start (requiring-resolve 'idp.uiroot/start-ui!)))))
+  (idp.uiroot/start-ui!))
 
 (defn -main [& args]
   (start-nrepl-server!)
   (.addShutdownHook (Runtime/getRuntime)
     (Thread. #'on-shutdown))
-  (when (not-any? #{"nostart"} args) (start-app!)))
+  (when (not-any? #{"nostart"} args) (start-app!))
+  (println "Initialised"))
 
 (comment
   (start-app!)

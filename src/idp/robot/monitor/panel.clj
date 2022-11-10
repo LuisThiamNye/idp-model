@@ -39,13 +39,15 @@
     {:on-move (fn [_] true)}
     (ui/stack
       (ui/canvas
-        {:on-paint (fn [ctx _ _]
-                     (hui/schedule #(window/request-frame (:window ctx)) 20))})
-      (ui/dynamic ctx [ui-line-sensor-dot ui-line-sensor-dot
-                      {:keys [line-sensor-1
-                              line-sensor-2
-                              line-sensor-3]} @robot.state/*real
-                       {:keys [mouse-on-line?]} @state/*misc]
+        {:on-paint
+         (fn [ctx _ _]
+           (hui/schedule #(window/request-frame (:window ctx)) 20))})
+      (ui/dynamic _
+        [ui-line-sensor-dot ui-line-sensor-dot
+         {:keys [line-sensor-1
+                 line-sensor-2
+                 line-sensor-3]} @robot.state/*real
+         {:keys [mouse-on-line?]} @state/*misc]
        (ui/row
          (ui/with-context
            {:line-sensor-triggered? line-sensor-1}
@@ -76,7 +78,8 @@
   (reset! *window
     (ui/window
       {:title    "Monitor"
-       :bg-color 0xFFFFFFFF}
+       :bg-color 0xFFFFFFFF
+       :exit-on-close? false}
       *app)))
 
 (comment

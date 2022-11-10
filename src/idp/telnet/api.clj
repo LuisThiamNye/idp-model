@@ -103,15 +103,4 @@
      0 0
      0 0 0])
   
-  (let [_ (telnet/send-bytes!
-            [(make-insn-byte {:set-motor? true
-                              :motor1-rev? false
-                              :motor2-rev? false})
-             0 0
-             0 0 0])
-        _ (Thread/sleep 200)
-        res (telnet/read-all-bytes!)]
-    (when res
-      (decode-response res)))
-  
   )
