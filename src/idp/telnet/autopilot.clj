@@ -15,11 +15,24 @@
   (Thread/sleep 50)
   (api/tick! dt)
   (when (= :connected (:status @net/*conn))
-    (prn @api/*state)
+    ; (prn (select-keys @api/*state
+    ;        [:ultrasonic-1 :ultrasonic-2]))
+    (println
+      (format "%4d %4d"
+        (:ultrasonic-1 @api/*state)
+        (:ultrasonic-2 @api/*state)))
     ; (prn @api/*input)
-    
+    #_
+    (let [{:keys [line-sensor-1
+                  line-sensor-2
+                  line-sensor-3
+                  line-sensor-4]} @api/*state]
+      (prn [line-sensor-1
+            line-sensor-2
+            line-sensor-3
+            line-sensor-4]))
     (when (= :travel @*mode)
-      #_(travel/tick!)))
+      (travel/tick!)))
   )
 
 (def *stop-loop? (atom false))
@@ -76,6 +89,15 @@
   
   (.interrupt @*loop-thread)
   
+  (swap! travel/*state assoc :mode :stop)
+  (swap! travel/*state assoc :mode
+    ; :simple-follow
+    ; :tight-follow
+    :enter-tunnel
+    )
+  
+  (swap! api/*input assoc
+      :ultrasonic-active? true)
   
   
   )
