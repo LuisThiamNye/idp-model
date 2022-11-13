@@ -37,7 +37,7 @@
 
 (defn tick! [params dt]
   ; (println "tick")
-  (Thread/sleep 100)
+  (Thread/sleep 20)
   (let [robot (:robot params)
         *readings (:*readings robot)
         prev-readings @*readings
@@ -92,12 +92,12 @@
     :ultrasonic-active? true)
   
   (reset! (:*state robot.state/sim-robot)
-  {:auto? true
-   :mode :exit-start
-   :readings-history []
-   :over-horiz? false
-   :n-horiz-found 0
-   :deviation :none})
+    {:auto? true
+     :mode :exit-start
+     :readings-history []
+     :over-horiz? false
+     :n-horiz-found 0
+     :deviation :none})
   
   
   

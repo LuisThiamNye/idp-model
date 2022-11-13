@@ -1,5 +1,6 @@
 (ns idp.common
   (:require
+    [clojure.string :as str]
     [io.github.humbleui.core :as core]
     [io.github.humbleui.font :as font]
     [io.github.humbleui.paint :as paint]
@@ -18,6 +19,12 @@
                           FontSlant/UPRIGHT)))
 
 (def mono-typeface code-typeface)
+
+(defn multiline-label [string]
+  (ui/column
+    (map #(ui/padding 0 2
+            (ui/label %))
+      (str/split-lines string))))
 
 (defn with-context
   ([child]

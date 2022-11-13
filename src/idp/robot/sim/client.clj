@@ -20,6 +20,7 @@
 (def initial-brain-state
   {:last-insn-time -1
    :paused? false
+   ; :req-id 255
    :latest-readings robot.state/initial-readings})
 
 (def *client
@@ -28,12 +29,16 @@
       (atom (merge initial-client-state
               initial-brain-state)))))
 
+(reset! (:*state @*client)
+  (merge initial-client-state
+    initial-brain-state))
+
 (defn rand-send-latency []
-  (+ 20 (rand-int 160)))
+  (+ 20 (rand-int 60)))
 (defn rand-response-latency []
   (rand-send-latency))
 (defn rand-request-drop? []
-  (< (rand) 0.5))
+  (< (rand) 0.05))
 (defn rand-response-drop? []
   (rand-request-drop?))
 
@@ -64,32 +69,67 @@
                                :status :connected)))
           client)))))
 
-(defn send-response! [*state response]
-  (when-not (rand-response-drop?)
-    (swap! *state update :res-queue conj
-      {:timestamp (System/currentTimeMillis)
-       :latency (rand-response-latency)
-       :message response}))
-  (swap! *state assoc-in [:latest-readings :line-switches] [0 0 0 0]))
+(defn send-response! [*state]
+  (when (:retry? @*state)
+    (swap! *state
+      (fn [{:keys [sent-readings latest-readings] :as state}]
+        (if (nil? sent-readings)
+          state
+          (-> state
+            (dissoc :sent-readings)
+            (assoc :latest-readings
+              (update latest-readings :line-switches
+               (fn [switches]
+                 (mapv (fn [prev cur]
+                         (+ prev cur))
+                   (:line-switches sent-readings)
+                   switches)))))))))
+  (let [response (:latest-readings @*state)]
+    (when-not (rand-response-drop?)
+      (swap! *state update :res-queue conj
+        {:timestamp (System/currentTimeMillis)
+         :latency (rand-response-latency)
+         :message response}))
+    (swap! *state
+      (fn [state]
+        (-> state
+          (assoc :sent-readings response)
+          (assoc-in [:latest-readings :line-switches] [0 0 0 0]))))))
 
 (defn process-input! [input]
-  (let [{:keys [motor-1 motor-2]} input
-        {:keys [max-rpm wheel-diameter wheel-spacing]}
-        robot.params/dims
-        motor->v
-        (fn [spd]
-          (let [rpm (* max-rpm (max 0 (min 1 (/ spd 255))))
+  (let
+    [{:keys [motor-1 motor-2]} input
+     {:keys [max-rpm wheel-diameter wheel-spacing]}
+     robot.params/dims
+     motor-thres 40
+     motor->v
+     (fn [spd]
+       (let
+         [rpm (* max-rpm (max 0 (min 1 (/ (if (neg? spd)
+                                            (min 0 (+ spd motor-thres))
+                                            (max 0 (- spd motor-thres)))
+                                           255))))
                 rps (/ rpm 60)
                 circumference (* Math/PI wheel-diameter)]
-            (* circumference rps)))
-        motor1-v (motor->v motor-1)
-        motor2-v (motor->v motor-2)]
+         (* circumference rps)))
+     motor1-v (motor->v motor-1)
+     motor2-v (motor->v motor-2)]
     (swap! robot.state/*real assoc
       :velocity (/ (+ motor1-v motor2-v) 2)
       :angular-velocity
       (* (/ (- motor1-v motor2-v)
            wheel-spacing)
         (/ 180 Math/PI)))))
+
+(defn process-request! [*state req]
+  ;; important to use id rather than :retry? bit or else cannot
+  ;; distinguish between dropped messages on req/response
+  (swap! *state
+    (fn [state]
+      (assoc state
+        :retry? (= (:req-id state) (:id req))
+        :req-id (:id req))))
+  (process-input! req))
 
 (defn process-queues [*state fromqk toqk]
   (let [state @*state
@@ -109,8 +149,6 @@
     :line-switches
     (fn [switches]
       (mapv (fn [n prev current]
-              (when (not= prev current)
-                #_(prn "hop" readings readings'))
               (cond-> n (not= prev current) inc))
         switches
         [(:line-sensor-1 readings)
@@ -151,10 +189,10 @@
           (swap! *state assoc :paused? false)
           (resume-activities!))
         (swap! *state update :ready-req-queue pop)
-        (process-input! input)
-        (send-response! *state readings'))
+        (process-request! *state input)
+        (send-response! *state))
       (when (and (< rc-timeout (- (System/currentTimeMillis)
-                                 (:last-insn-time state)))
+                                 (:last-insn-time state -1)))
               (not paused?))
         (pause-activities!)))
     (process-queues *state :res-queue :ready-res-queue)))

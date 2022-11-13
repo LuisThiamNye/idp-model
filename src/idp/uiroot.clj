@@ -83,7 +83,7 @@
   (app/doui-async
     (deliver state/*window
       (ui/window
-        {:title    "IDP"
+        {:title    "Simulation"
          :bg-color 0xFFFFFFFF
          :exit-on-close? false}
         state/*app))))

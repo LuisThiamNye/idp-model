@@ -201,38 +201,37 @@
      {:keys [line-sensor-1
              line-sensor-2
              line-sensor-3
-             line-sensor-4]} readings
-     {:keys [over-horiz?
-             n-horiz-found]} @*state
-     horiz? (<= 3
-              (reduce +
-                (mapv #(if % 1 0)
-                  [line-sensor-1
-                   line-sensor-2
-                   line-sensor-3
-                   line-sensor-4])))]
-    ;; TODO explore rule of each sensor much encouner the line at least twice
-    (match [horiz? over-horiz?]
-      [true true]
-      nil
-      [true false] ;; entered horiz
-      (if (<= 1 n-horiz-found)
-        ;; found the T-junction
-        (do
-          (swap! *state assoc
-            :mode :exit-start-turn
-            :over-horiz? true
-            :deviation :left)
-          (tick-stop))
-        ;; found the box edge
+             line-sensor-4
+             line-switches]} readings
+     {:keys [line-triggers]
+      :or {line-triggers [0 0 0 0]}} @*state
+     sensor-line-enters
+     (fn [n]
+       (let [on? (case n
+                   0 line-sensor-1
+                   1 line-sensor-2
+                   2 line-sensor-3
+                   3 line-sensor-4)
+             nswitches (nth line-switches n)
+             n-ons (long (Math/ceil (/ (cond-> nswitches
+                                         (not on?) dec)
+                                      2)))]
+         n-ons))
+     line-triggers
+     (vec (map-indexed
+            (fn [i prev] (+ prev (sensor-line-enters i)))
+            line-triggers))]
+    (swap! *state assoc :line-triggers line-triggers)
+    ;; one line sensor may remain on the path and not be triggered twice
+    (if (let [non-ones (filterv #(not= % 1) line-triggers)]
+          (and (<= 3 (count non-ones))
+            (every? #(<= 2 %) non-ones)))
+      (do
         (swap! *state assoc
+          :mode :exit-start-turn
           :over-horiz? true
-          :n-horiz-found (inc n-horiz-found)))
-      [false true] ;; exit horiz
-      (swap! *state assoc :over-horiz? false)
-      [false false]
-      nil)
-    (when (= :exit-start (:mode @*state))
+          :deviation :left)
+        (tick-start-exit-turn *state readings))
       (let [speed sforward]
         {:motor-1 speed
          :motor-2 speed}))))

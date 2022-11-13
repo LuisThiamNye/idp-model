@@ -6,7 +6,7 @@
   (atom {:waiting? false
          :req-time nil}))
 
-(def response-timeout 400)
+(def response-timeout 500)
 
 (defprotocol Client
   (-reset-client! [_])
@@ -23,7 +23,8 @@
   (locking req-status-atoms
     (or (.get req-status-atoms client)
       (let [res (atom {:waiting? false
-                       :req-time nil})]
+                       :req-time nil
+                       :id 0})]
         (.put req-status-atoms client res)
         res))))
 
@@ -35,16 +36,18 @@
 (defn sendrecv!
   [client input]
   (let [*req-status (get-req-status-atom client)
-        {:keys [waiting?]} @*req-status]
+        {:keys [waiting? id]} @*req-status]
     (when-not waiting?
       ; (prn "sending")
       (swap! *req-status assoc
         :waiting? true :req-time (System/currentTimeMillis))
-      (-send-input! client input))
+      (-send-input! client
+        (assoc input :id id)))
     (if-some [res (-get-response! client)]
       (do
         (swap! *req-status assoc
-          :waiting? false)
+          :waiting? false
+          :id (if (= 255 id) 0 (inc id)))
         res)
       (when (< response-timeout
               (- (System/currentTimeMillis) (:req-time @*req-status)))

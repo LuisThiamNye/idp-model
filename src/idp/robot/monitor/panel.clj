@@ -9,7 +9,7 @@
     [idp.state :as state]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
-    [idp.common :as common]
+    [idp.common :as common :refer [multiline-label]]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.core :as hui]
     [io.github.humbleui.protocols :as protocols]
@@ -31,8 +31,8 @@
 (def ui-line-sensor-dot
   (let [inactive-fill (paint/fill 0x4F000000)
         active-fill (paint/fill 0xFF40F040)]
-    (ui/width 20
-      (ui/height 20
+    (ui/width 15
+      (ui/height #(:width %)
         (ui/canvas
           {:on-paint
            (fn [ctx ^Canvas cnv size]
@@ -56,18 +56,19 @@
              (ui/with-context
                {:line-sensor-triggered? ls}
                ui-line-sensor-dot))]
-    (ui/row
-      (ui-ls line-sensor-4)
-      (ui/gap 10 0)
-      (ui-ls line-sensor-3)
-      (ui/gap 10 0)
-      (ui-ls line-sensor-2)
-      (ui/gap 10 0)
-      (ui-ls line-sensor-1)
-      (ui/gap 30 0)
-      (ui/with-context
-        {:line-sensor-triggered? mouse-on-line?}
-        ui-line-sensor-dot))))
+    (let [gap 5]
+      (ui/row
+       (ui-ls line-sensor-4)
+       (ui/gap gap 0)
+       (ui-ls line-sensor-3)
+       (ui/gap gap 0)
+       (ui-ls line-sensor-2)
+       (ui/gap gap 0)
+       (ui-ls line-sensor-1)
+       (ui/gap (* 2.5 gap) 0)
+       (ui/with-context
+         {:line-sensor-triggered? mouse-on-line?}
+         ui-line-sensor-dot)))))
 
 (let [forward-fill (paint/fill 0xFF89dddd)
       backward-fill (paint/fill 0xFFddc489)
@@ -282,12 +283,6 @@
                                       (:robot-state ctx)))]
                 (ui/label (str dt " ms"))))))))))
 
-(defn multiline-label [string]
-  (ui/column
-    (map #(ui/padding 0 2
-            (ui/label %))
-      (str/split-lines string))))
-
 (def ui-client-controls
   (ui/dynamic ctx
     [{looping? :client-looping?
@@ -416,7 +411,7 @@
 (defn open-window! []
   (reset! *window
     (ui/window
-      {:title    "Monitor"
+      {:title    "Client Monitor"
        :bg-color 0xFFFFFFFF
        :exit-on-close? false}
       *app)))
