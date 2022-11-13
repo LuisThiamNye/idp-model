@@ -11,39 +11,12 @@
     [idp.board.params :as board.params]
     [idp.board.geo :as board.geo]
     [idp.robot.graphic :as robot.g]
+    [idp.robot.sim.ui :as robot.sim.ui]
     [idp.robot.state :as robot.state])
   (:import
     [io.github.humbleui.skija ColorSpace]
     [io.github.humbleui.jwm Window]
     [io.github.humbleui.jwm.skija LayerMetalSkija]))
-
-(def *last-tick-time (atom 0))
-(def *sim-dt (atom 20))
-(def *sim-speed (atom 2))
-
-(defn sim-tick! [dt]
-  ; (idp.robot.brain.travel/tick!)
-  (robot.state/tick! dt))
-
-(def *stop-sim? (atom false))
-
-(defn sim-tick-recurring []
-  (if @*stop-sim?
-    (reset! *stop-sim? false)
-    (let [dt @*sim-dt
-          now (hui/now)
-          del (max 0 (- (+ (/ dt @*sim-speed)
-                          @*last-tick-time) now))]
-      ; (prn del)
-      (reset! *last-tick-time now)
-      (sim-tick! dt)
-      (hui/schedule #(sim-tick-recurring)
-        del))))
-
-(sim-tick-recurring)
-(comment
-  (reset! *stop-sim? true)
-  )
 
 (def ui-arena
   (ui/mouse-listener
@@ -86,10 +59,23 @@
                        #(window/request-frame (:window ctx))
                        0))})))))))))
 
+(def ui-root
+  (ui/dynamic ctx
+    [ui-arena ui-arena
+     sim-controls robot.sim.ui/ui-controls]
+    (ui/column
+      (ui/halign 0.5
+        (ui/height
+          (fn [{:keys [width height]}]
+            (min height width))
+          (ui/width #(:height %)
+            ui-arena)))
+      sim-controls)))
+
 (def app
-  (common/with-context
-    (ui/dynamic ctx [ui-arena ui-arena]
-      ui-arena)))
+  (ui/dynamic ctx [ui-root ui-root
+                   wc common/with-context]
+    (wc ui-root)))
 
 (reset! state/*app app)
 

@@ -7,7 +7,9 @@
     [nrepl.cmdline]
     [nrepl.server]
     [idp.uiroot]
-    [idp.telnet.autopilot]
+    [idp.sim]
+    [idp.robot.autopilot]
+    [idp.robot.monitor.panel]
     [chic.debug.nrepl :as debug.nrepl]))
 
 ;; (set! *warn-on-reflection* true)

@@ -1,5 +1,6 @@
-(ns idp.telnet
-  "Disclaimer: not actually telnet"
+(ns idp.net "
+Contains primitives for connecting to and transmitting data
+to the Arduino."
   (:require
     [clojure.java.shell :as shell])
   (:import
@@ -8,17 +9,19 @@
       PrintWriter BufferedReader InputStreamReader
       Reader IOException InputStream OutputStream)))
 
-(def ^String hostname "192.168.137.222")
+(def server-mac-address "84-cc-a8-2e-96-18")
 
-(defn get-server-ip []
-  (let [{:keys [exit out]} (shell/sh "arp" "-a")
-        [_ ip] (re-find #"\s(\S+)\s+84-cc-a8-2e-96-18" out)]
+(defn get-server-ip
+  "Finds the IP address of the Arduino connected to the current
+Windows device via mobile hotspot."
+  []
+  (let [{:keys [out]} (shell/sh "arp" "-a")
+        [_ ip] (re-find (re-pattern (str #"\s(\S+)\s+" server-mac-address)) out)]
     ip))
 
 (defn wait-for-ip! []
   (loop []
-    (if-some [ip (get-server-ip)]
-      ip
+    (or (get-server-ip)
       (do (Thread/sleep 30)
         (recur)))))
 
@@ -89,10 +92,10 @@
                         :status :failed})
                      conn))))))}))))
 
-(defn send-bytes! [conn s]
+(defn send-bytes! [conn data]
   (let [{:keys [^OutputStream out]} conn]
     (.write out
-      (byte-array s))
+      (byte-array data))
     (.flush out)))
 
 (defn read-all-bytes! [conn]
@@ -113,6 +116,5 @@
 
 (comment
   (reset-conn!)
-  
   
   )

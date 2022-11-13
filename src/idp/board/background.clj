@@ -54,7 +54,8 @@
              line-horiz-xr (- board-width (+ line-turn-outer-radius line-right-margin))
              turn-square-length (* 2 line-turn-outer-radius)
              turn-insquare-length (* 2 line-turn-radius)
-             line-bottom-yb (- board-height line-bottom-margin)]
+             line-bottom-yb (- board-height line-bottom-margin)
+             ->rect #(Rect. (:left %) (:top %) (:right %) (:bottom %))]
          (.drawRect cnv (Rect/makeWH (.toPoint size)) board-border-bg)
          (canvas/with-canvas cnv
            (canvas/scale cnv scale)
@@ -76,8 +77,7 @@
             ramp-bg)
            
            ;; Lines
-           (let [->rect #(Rect. (:left %) (:top %) (:right %) (:bottom %))
-                 {:keys [top-rect
+           (let [{:keys [top-rect
                          right-rect
                          bottom-rect
                          left-top-rect
@@ -134,31 +134,27 @@
              )
            
            ;; Line Boxes
-           (let [shrink-outer
-                 (fn [^Rect rect]
-                   (.inflate rect (- line-width)))
-                 draw-box
-                 (fn [line-path-x box-fill]
-                   (let [half-line-width (/ line-width 2)
-                         outer-rect (Rect/makeXYWH
-                                      (- (+ line-path-x half-line-width)
-                                        (/ line-box-length 2))
-                                      (+ line-bottom-yb line-box-path-length)
-                                      line-box-length
-                                      line-box-length)]
+           (let [draw-box
+                 (fn [outer-rect' inner-rect' path-rect' box-fill]
+                   (let [outer-rect (->rect outer-rect')]
                      (.drawRect cnv outer-rect box-fill)
-                     (.drawRect cnv (shrink-outer outer-rect) board-bg)
-                     (.drawRect cnv (Rect/makeXYWH line-path-x line-bottom-yb
-                                      line-width line-box-path-length)
-                       line-fill)))]
-             (draw-box line-left-box-path-x line-box-red-fill)
-             (draw-box (+ line-left-box-path-x
-                         line-left-boxes-path-spacing)
-               line-fill)
-             (draw-box (+ line-left-box-path-x
-                         line-left-boxes-path-spacing
-                         line-right-boxes-path-spacing)
-               line-box-green-fill))
+                     (.drawRect cnv (->rect inner-rect') board-bg)
+                     (.drawRect cnv (->rect path-rect') line-fill)))
+                 {:keys [red-box-outer-rect
+                         start-box-outer-rect
+                         green-box-outer-rect
+                         red-box-inner-rect
+                         start-box-inner-rect
+                         green-box-inner-rect
+                         red-box-path-rect
+                         start-box-path-rect
+                         green-box-path-rect]} (board.geo/get-line-geo)]
+             (draw-box red-box-outer-rect red-box-inner-rect
+               red-box-path-rect line-box-red-fill)
+             (draw-box start-box-outer-rect start-box-inner-rect
+               start-box-path-rect line-fill)
+             (draw-box green-box-outer-rect green-box-inner-rect
+               green-box-path-rect line-box-green-fill))
            
            ;; Collection lines
            (let [{:keys [collect-left-rect

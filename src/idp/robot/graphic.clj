@@ -22,7 +22,8 @@
         (fn [ctx ^Canvas cnv size]
           (let [scale (* (:scale ctx) (:board-scale ctx))
                 {:keys [width length centre-y
-                        line-sensors-y line-sensors-spacing]} (:dims ctx)
+                        line-sensors-y line-sensors-spacing
+                        line-sensors-centre-spacing]} (:dims ctx)
                 {:keys [border-stroke
                         line-sensor-fill
                         line-sensor-radius]} (:theme ctx)
@@ -30,7 +31,12 @@
                 ymid centre-y
                 {:keys [angle]
                  {robot-x :x
-                  robot-y :y} :position} @(:*robot-real-state ctx)]
+                  robot-y :y} :position} @(:*robot-real-state ctx)
+                draw-line-sensor
+                (fn [n]
+                  (let [{:keys [x y]} (params/get-line-sensor-pos n)]
+                    (.drawCircle cnv (+ x xmid) (+ y ymid)
+                      line-sensor-radius line-sensor-fill)))]
             (canvas/with-canvas
               (canvas/scale cnv scale)
               (canvas/translate cnv robot-x robot-y)
@@ -38,9 +44,10 @@
               (canvas/translate cnv (- xmid) (- ymid))
               (.drawRect cnv (Rect/makeWH width length) border-stroke)
               ;; line sensors
-              (.drawCircle cnv xmid line-sensors-y line-sensor-radius line-sensor-fill)
-              (.drawCircle cnv (+ xmid line-sensors-spacing) line-sensors-y line-sensor-radius line-sensor-fill)
-              (.drawCircle cnv (- xmid line-sensors-spacing) line-sensors-y line-sensor-radius line-sensor-fill)
+              (draw-line-sensor 1)
+              (draw-line-sensor 2)
+              (draw-line-sensor 3)
+              (draw-line-sensor 4)
               ;; centre
               (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
               

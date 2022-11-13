@@ -1,43 +1,33 @@
 (ns idp.robot.brain.travel
   (:require
-    [idp.telnet.api :as api]
+    [idp.net.api :as api]
     [clojure.core.match :refer [match]]
     [idp.robot.command :as cmd]
     [idp.robot.state :as robot.state]))
 
-(def *state
-  (atom {:mode :exit-start
-         :over-horiz? false
-         :n-horiz-found 0
-         :deviation :none}))
-
 (defn tick-stop []
-  (swap! api/*input assoc
-    :motor-1 0 :motor-2 0))
+  {:motor-1 0 :motor-2 0})
 
 (defn handle-deviation!
-  [{:keys [turn-speed straight-speed turn-diff]}]
+  [*state {:keys [turn-speed straight-speed turn-diff]}]
   (let [{:keys [deviation]} @*state]
     (case deviation
       :left
-      (swap! api/*input assoc
-        :motor-1 (+ turn-speed turn-diff)
-        :motor-2 (+ turn-speed (- turn-diff)))
+      {:motor-1 (+ turn-speed turn-diff)
+       :motor-2 (+ turn-speed (- turn-diff))}
       :none
-      (swap! api/*input assoc
-        :motor-1 straight-speed
-        :motor-2 straight-speed)
+      {:motor-1 straight-speed
+       :motor-2 straight-speed}
       :right
-      (swap! api/*input assoc
-        :motor-1 (+ turn-speed (- turn-diff))
-        :motor-2 (+ turn-speed turn-diff)))))
+      {:motor-1 (+ turn-speed (- turn-diff))
+       :motor-2 (+ turn-speed turn-diff)})))
 
-(defn tick-simple-follow []
+(defn tick-simple-follow [*state readings]
   (let [{:keys [line-sensor-1 ;; far right
                 line-sensor-2 ;; centre right
                 line-sensor-3 ;; centre left
                 line-sensor-4 ;; far left
-                ]} @api/*state
+                ]} readings
         line-sensor-left line-sensor-3
         line-sensor-centre line-sensor-2
         line-sensor-right line-sensor-1]
@@ -51,18 +41,18 @@
       [false false true]
       (swap! *state assoc :deviation :left)
       :else nil)
-    (handle-deviation!
+    (handle-deviation! *state
       {:turn-speed 30
        :turn-diff 70
        :straight-speed 250})))
 
-(defn tick-tight-follow []
+(defn tick-tight-follow [*state readings]
   (let
     [{:keys [line-sensor-1 ;; far right
              line-sensor-2 ;; centre right
              line-sensor-3 ;; centre left
              line-sensor-4 ;; far left
-             ]} @api/*state
+             ]} readings
      line-sensor-far-left line-sensor-4
      line-sensor-left line-sensor-3
      line-sensor-right line-sensor-2
@@ -95,7 +85,7 @@
       (not (or line-sensor-left
              line-sensor-right)))
     ; (prn (select-keys @*state [:deviation :deviation-far?]))
-    (handle-deviation!
+    (handle-deviation! *state
       (if (:deviation-far? @*state)
         {:turn-speed 30
          :turn-diff 70
@@ -104,13 +94,13 @@
          :turn-diff 30
          :straight-speed 250}))))
 
-(defn straight-follow-intent []
+(defn straight-follow-intent [*state readings]
   (let
     [{:keys [line-sensor-1 ;; far right
              line-sensor-2 ;; centre right
              line-sensor-3 ;; centre left
              line-sensor-4 ;; far left
-             ]} @api/*state
+             ]} readings
      line-sensor-far-left line-sensor-4
      line-sensor-left line-sensor-3
      line-sensor-right line-sensor-2
@@ -149,7 +139,7 @@
                           (:deviation-far? @*state))
         :deviation deviation))
     (prn (select-keys @*state [:deviation :deviation-far?]))
-    (handle-deviation!
+    (handle-deviation! *state
       (if true ; deviation-far?
         {:turn-speed 30
          :turn-diff 70
@@ -158,27 +148,23 @@
          :turn-diff 30
          :straight-speed 150}))))
 
-(defn tick-enter-tunnel []
-  (when-not (:ultrasonic-active? @api/*input)
-    (swap! api/*state assoc
-      :ultrasonic-1 0 :ultrasonic-2 0))
-  (swap! api/*input assoc
-    :ultrasonic-active? true)
+(defn tick-enter-tunnel [*state readings]
   (let [{:keys [ultrasonic-1
-                ultrasonic-2]} @api/*state]
+                ultrasonic-2]} readings]
     (prn ultrasonic-1)
     (if (< 0 ultrasonic-1 300)
-      (swap! *state assoc :mode :through-tunnel)
-      (straight-follow-intent))))
+      (do (swap! *state assoc :mode :through-tunnel)
+        {:ultrasonic-active? true})
+      (straight-follow-intent *state readings))))
 
-(defn tick-through-tunnel [])
+(defn tick-through-tunnel [*state readings])
 
-(defn tick-start-exit-turn []
+(defn tick-start-exit-turn [*state readings]
   (let [{:keys [line-sensor-1 ;; far right
                 line-sensor-2 ;; centre right
                 line-sensor-3 ;; centre left
                 line-sensor-4 ;; far left
-                ]} @api/*state
+                ]} readings
         ; line-sensor-left line-sensor-4
         ; line-sensor-centre line-sensor-3
         line-sensor-right line-sensor-2
@@ -199,24 +185,23 @@
             line-sensor-right))
       (do
         (swap! *state assoc :mode :simple-follow)
-        (tick-simple-follow))
+        (tick-simple-follow *state readings))
       (let [;{:keys [deviation]} @*state
            sturn 80
            sturnf 120]
         (when-not (or line-sensor-far-right
                     line-sensor-right)
           (swap! *state assoc :over-horiz? false))
-        (swap! api/*input assoc
-          :motor-1 (+ sturnf sturn)
-          :motor-2 (- sturnf sturn))))))
+        {:motor-1 (+ sturnf sturn)
+         :motor-2 (- sturnf sturn)}))))
 
-(defn tick-exit-start []
+(defn tick-exit-start [*state readings]
   (let
-    [sforward 100
+    [sforward 200
      {:keys [line-sensor-1
              line-sensor-2
              line-sensor-3
-             line-sensor-4]} @api/*state
+             line-sensor-4]} readings
      {:keys [over-horiz?
              n-horiz-found]} @*state
      horiz? (<= 3
@@ -226,13 +211,14 @@
                    line-sensor-2
                    line-sensor-3
                    line-sensor-4])))]
+    ;; TODO explore rule of each sensor much encouner the line at least twice
     (match [horiz? over-horiz?]
       [true true]
       nil
       [true false] ;; entered horiz
       (if (<= 1 n-horiz-found)
         ;; found the T-junction
-        (do (println "STOP")
+        (do
           (swap! *state assoc
             :mode :exit-start-turn
             :over-horiz? true
@@ -248,23 +234,22 @@
       nil)
     (when (= :exit-start (:mode @*state))
       (let [speed sforward]
-       (swap! api/*input assoc
-         :motor-1 speed
-         :motor-2 speed)))))
+        {:motor-1 speed
+         :motor-2 speed}))))
 
-(defn tick! []
+(defn tick! [*state readings]
   (let [mode (:mode @*state)]
     (case mode
       :exit-start
-      (tick-exit-start)
+      (tick-exit-start *state readings)
       :exit-start-turn
-      (tick-start-exit-turn)
+      (tick-start-exit-turn *state readings)
       :simple-follow
-      (tick-simple-follow)
+      (tick-simple-follow *state readings)
       :tight-follow
-      (tick-tight-follow)
+      (tick-tight-follow *state readings)
       :enter-tunnel
-      (tick-enter-tunnel)
+      (tick-enter-tunnel *state readings)
       :through-tunnel
       (tick-stop)
       :stop

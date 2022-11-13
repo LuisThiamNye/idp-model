@@ -8,13 +8,21 @@
 (defn rect-xywh [x y w h]
   (rect-ltrb x y (+ x w) (+ y h)))
 
+(defn rect-grow [rect d]
+  (-> rect
+    (update :left - d)
+    (update :top - d)
+    (update :right + d)
+    (update :bottom + d)))
+
 (defn rect-contains? [{:keys [left right top bottom]} {:keys [x y]}]
   (and
     (<= left x) (< x right)
     (<= top y) (< y bottom)))
 
 (defn get-line-geo* []
-  (let [{:keys [board-width board-height
+  (let
+    [{:keys [board-width board-height
              line-left-margin
              line-top-margin
              line-right-margin
@@ -40,7 +48,27 @@
              ramp-margin-bottom]} params/dims
      line-turn-outer-radius (+ line-turn-radius line-width)
      line-horiz-xr (- board-width (+ line-turn-outer-radius line-right-margin))
-     line-bottom-yb (- board-height line-bottom-margin)]
+     line-bottom-yb (- board-height line-bottom-margin)
+     half-line-width (/ line-width 2)
+     box-outer-rect
+     (fn [line-path-x]
+       (rect-xywh
+         (- (+ line-path-x half-line-width)
+           (/ line-box-length 2))
+         (+ line-bottom-yb line-box-path-length)
+         line-box-length
+         line-box-length))
+     shrink-outer-box
+     (fn [rect] (rect-grow rect (- line-width)))
+     red-box-outer-rect
+     (box-outer-rect line-left-box-path-x)
+     start-box-outer-rect
+     (box-outer-rect (+ line-left-box-path-x
+                       line-left-boxes-path-spacing))
+     green-box-outer-rect
+     (box-outer-rect (+ line-left-box-path-x
+                       line-left-boxes-path-spacing
+                       line-right-boxes-path-spacing))]
     {:top-rect
      (rect-ltrb
        (+ line-left-margin line-turn-outer-radius)
@@ -111,7 +139,14 @@
                   line-left-boxes-path-spacing
                   line-right-boxes-path-spacing)
        line-bottom-yb
-       line-width line-box-path-length)}))
+       line-width line-box-path-length)
+     
+     :red-box-outer-rect red-box-outer-rect
+     :start-box-outer-rect start-box-outer-rect
+     :green-box-outer-rect green-box-outer-rect
+     :red-box-inner-rect (shrink-outer-box red-box-outer-rect)
+     :start-box-inner-rect (shrink-outer-box start-box-outer-rect)
+     :green-box-inner-rect (shrink-outer-box green-box-outer-rect)}))
 
 (let [*prev-rev (atom nil)
       *prev-ret (atom nil)]
@@ -137,7 +172,13 @@
              tl-turn-centre
              tr-turn-centre
              bl-turn-centre
-             br-turn-centre]} (get-line-geo)
+             br-turn-centre
+             red-box-outer-rect
+             start-box-outer-rect
+             green-box-outer-rect
+             red-box-inner-rect
+             start-box-inner-rect
+             green-box-inner-rect]} (get-line-geo)
      {:keys [line-turn-radius
              line-width]} params/dims
      line-turn-outer-radius (+ line-turn-radius line-width)
@@ -196,4 +237,11 @@
                  (+ x line-turn-outer-radius)
                  (+ y line-turn-outer-radius))
                point)
-          (within-turn? centre))))))
+          (within-turn? centre)))
+      ;; Boxes
+      (and (rect-contains? red-box-outer-rect point)
+        (not (rect-contains? red-box-inner-rect point)))
+      (and (rect-contains? start-box-outer-rect point)
+        (not (rect-contains? start-box-inner-rect point)))
+      (and (rect-contains? green-box-outer-rect point)
+        (not (rect-contains? green-box-inner-rect point))))))
