@@ -2,7 +2,6 @@
   (:require
     [idp.net.api :as api]
     [clojure.core.match :refer [match]]
-    [idp.robot.command :as cmd]
     [idp.robot.state :as robot.state]))
 
 (defn tick-stop []

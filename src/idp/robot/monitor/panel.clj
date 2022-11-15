@@ -109,7 +109,8 @@
 
 (let [fill (paint/fill 0xFF89dddd)
       nodata-fill (paint/fill 0xFFa5c6c6)
-      border-stroke (paint/stroke 0xFF505050 3)]
+      border-stroke (paint/stroke 0xFF505050 3)
+      max-dist 2000]
   (defn ui-ultrasonic [us-key]
     (ui/rect border-stroke
       (ui/padding 1
@@ -118,7 +119,7 @@
             {:on-paint
              (fn [ctx ^Canvas cnv ^IPoint size]
                (let [dist (us-key (:robot-readings ctx))
-                     coeff (float (/ dist 255))
+                     coeff (float (/ dist max-dist))
                      width (* (:width size) coeff)
                      nodata? (= 0 dist)]
                  (if nodata?
@@ -167,10 +168,11 @@
                        draw-bar
                        (fn [ultrasonic left? ]
                          (let [nodata? (= 0 ultrasonic)
-                               width (* seg-width
+                               coeff (* seg-width
                                        (if nodata?
                                          1
-                                         (min 1 (/ ultrasonic max-dist))))]
+                                         (min 1 (/ ultrasonic max-dist))))
+                               width (* coeff seg-width)]
                            (.drawRect cnv
                              (Rect/makeXYWH
                                (if left?

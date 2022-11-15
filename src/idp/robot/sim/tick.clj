@@ -25,7 +25,6 @@
                        (update :y + dy))
             dangle (* angular-velocity dt)
             angle (+ angle dangle)
-            
             rot-2d (fn [deg {:keys [x y]}]
                      (let [rad (* (/ deg 180) Math/PI)]
                        {:x (+ (* x (Math/cos rad))
@@ -36,20 +35,19 @@
             (fn [pos]
               (-> (rot-2d (- angle 270) pos)
                 (update :x + (:x position))
-                (update :y + (:y position))))]
+                (update :y + (:y position))))
+            get-line-sensor
+            (fn [n]
+              (board.geo/point-on-line?
+                (absolutise-robot-point
+                  (robot.params/get-line-sensor-pos n))))]
         (assoc state
-          :line-sensor-1 (board.geo/point-on-line?
-                           (absolutise-robot-point
-                             (robot.params/get-line-sensor-pos 1)))
-          :line-sensor-2 (board.geo/point-on-line?
-                           (absolutise-robot-point
-                             (robot.params/get-line-sensor-pos 2)))
-          :line-sensor-3 (board.geo/point-on-line?
-                           (absolutise-robot-point
-                             (robot.params/get-line-sensor-pos 3)))
-          :line-sensor-4 (board.geo/point-on-line?
-                           (absolutise-robot-point
-                             (robot.params/get-line-sensor-pos 4)))
+          :line-sensor-1 (get-line-sensor 1)
+          :line-sensor-2 (get-line-sensor 2)
+          :line-sensor-3 (get-line-sensor 3)
+          :line-sensor-4 (get-line-sensor 4)
+          :ultrasonic-1 0
+          :ultrasonic-2 200
           :position position
           :angle (principal-angle angle)))))
   (sim.client/tick!))

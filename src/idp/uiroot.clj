@@ -56,7 +56,8 @@
                   {:on-paint
                    (fn [ctx _ _]
                      (hui/schedule
-                       #(window/request-frame (:window ctx))
+                       #(do
+                          (window/request-frame (:window ctx)))
                        0))})))))))))
 
 (def ui-root

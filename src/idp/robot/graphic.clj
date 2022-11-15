@@ -7,7 +7,7 @@
     [io.github.humbleui.canvas :as canvas])
   (:import
     [io.github.humbleui.types IRect IPoint Rect]
-    [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint]
+    [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint Path]
     [java.lang AutoCloseable]))
 
 (def ui-robot
@@ -22,9 +22,9 @@
         (fn [ctx ^Canvas cnv size]
           (let [scale (* (:scale ctx) (:board-scale ctx))
                 {:keys [width length centre-y
-                        line-sensors-y line-sensors-spacing
-                        line-sensors-centre-spacing]} (:dims ctx)
+                        ultrasonic-1 ultrasonic-2]} (:dims ctx)
                 {:keys [border-stroke
+                        ultrasonic-fill
                         line-sensor-fill
                         line-sensor-radius]} (:theme ctx)
                 xmid (/ width 2)
@@ -36,7 +36,22 @@
                 (fn [n]
                   (let [{:keys [x y]} (params/get-line-sensor-pos n)]
                     (.drawCircle cnv (+ x xmid) (+ y ymid)
-                      line-sensor-radius line-sensor-fill)))]
+                      line-sensor-radius line-sensor-fill)))
+                draw-ultrasonic
+                (fn [{:keys [pos angle]}]
+                  (let [x 0 y 0 l 7]
+                    (canvas/with-canvas cnv
+                      (.translate cnv (+ (:x pos) xmid) (+ (:y pos) ymid))
+                      (.rotate cnv angle)
+                      (.drawPath cnv
+                        (doto (Path.)
+                          (.addPoly
+                            (float-array
+                              [(+ x l) y
+                               (- x l) (+ y l)
+                               (- x l) (- y l)])
+                            true))
+                        ultrasonic-fill))))]
             (canvas/with-canvas
               (canvas/scale cnv scale)
               (canvas/translate cnv robot-x robot-y)
@@ -48,6 +63,9 @@
               (draw-line-sensor 2)
               (draw-line-sensor 3)
               (draw-line-sensor 4)
+              ;; ultrasonic
+              (draw-ultrasonic ultrasonic-1)
+              (draw-ultrasonic ultrasonic-2)
               ;; centre
               (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
               
