@@ -429,7 +429,10 @@
        :exit-on-close? false}
       *app)))
 
-(comment
+(defn open-window-safe! []
   (app/doui-async
-    (open-window!))
+    (open-window!)))
+
+(comment
+  
   )

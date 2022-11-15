@@ -6,10 +6,10 @@
     [nrepl.core :as nrepl]
     [nrepl.cmdline]
     [nrepl.server]
-    [idp.uiroot]
+    [idp.uiroot :as uiroot]
     [idp.sim]
     [idp.robot.autopilot]
-    [idp.robot.monitor.panel]
+    [idp.robot.monitor.panel :as monitor.panel]
     [chic.debug.nrepl :as debug.nrepl]))
 
 ;; (set! *warn-on-reflection* true)
@@ -50,12 +50,11 @@
   (println "Initialised"))
 
 (comment
+  (monitor.panel/open-window-safe!)
+  (uiroot/open-sim-window!)
+  
   (start-app!)
   (start-nrepl-server!)
   (debug.nrepl/add-middleware (nrepl/client nrepl-transport 1000))
-  
-  ;(defn nrepl-client (nrepl/client nrepl-transport 1000))
-
-  
   
   )
