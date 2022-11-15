@@ -180,6 +180,51 @@
   [line-triggers readings]
   (mapv + line-triggers (get-line-triggers readings)))
 
+(def state0-tunnel-approach
+  {:mode :tunnel-approach
+   :follow-intent [:straight]})
+
+(defn tick-tunnel-approach [*state readings]
+  (let
+    [line-triggers (get-line-triggers readings)
+     ;; whether each line sensor saw white since last response
+     combined-readings
+     (-> (mapv #(if (or (= :white %1) (pos? %2)) :w :b)
+           (robot.state/get-line-sensors readings)
+           line-triggers)
+       rseq vec)
+     state @*state
+     prev-intent (:follow-intent state)
+     intent
+     (match combined-readings
+       [_ :w :w _] [:straight]
+       [:b :w :b :b] [:left 1]
+       [:w _ :b :b] [:left 2]
+       [:b :b :w :b] [:right 1]
+       [:b :b _ :w] [:right 2]
+       [:b :b :b :b]
+       (match prev-intent
+         [:left 1]  [:straight]
+         [:left 2]  [:left 3]
+         [:right 1] [:straight]
+         [:right 2] [:right 3]
+         :else prev-intent)
+       :else prev-intent)
+     [forward-speed turn-speed]
+     (match intent
+       [:straight] [255 0]
+       [left-or-right level]
+       (let [[forward turn]
+             (case (int level)
+               1 [230 30]
+               2 [20 200]
+               3 [0 250])]
+         [forward
+          (cond-> turn (= :left left-or-right) -)]))]
+    (swap! *state assoc :follow-intent intent)
+    {:motor-1 (+ forward-speed turn-speed)
+     :motor-2 (- forward-speed turn-speed)}))
+
 (def state0-basic-follow
   {:mode :basic-follow
    :follow-intent [:straight]})
@@ -215,7 +260,7 @@
        [:straight] [255 0]
        [left-or-right level]
        (let [[forward turn]
-             (case level
+             (case (int level)
                1 [230 30]
                2 [80 150]
                3 [20 500]
@@ -303,6 +348,8 @@
       (tick-enter-tunnel *state readings)
       :through-tunnel
       (tick-stop)
+      :tunnel-approach
+      (tick-tunnel-approach *state readings)
       :stop
       (tick-stop)
       (println "INVALID MODE!! " mode))))

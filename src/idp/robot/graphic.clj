@@ -31,7 +31,8 @@
                 ymid centre-y
                 {:keys [angle]
                  {robot-x :x
-                  robot-y :y} :position} @(:*robot-real-state ctx)
+                  robot-y :y} :position
+                 :as real-state} @(:*robot-real-state ctx)
                 draw-line-sensor
                 (fn [n]
                   (let [{:keys [x y]} (params/get-line-sensor-pos n)]
@@ -42,7 +43,7 @@
                   (let [x 0 y 0 l 7]
                     (canvas/with-canvas cnv
                       (.translate cnv (+ (:x pos) xmid) (+ (:y pos) ymid))
-                      (.rotate cnv angle)
+                      (.rotate cnv (- angle 90))
                       (.drawPath cnv
                         (doto (Path.)
                           (.addPoly
@@ -51,14 +52,29 @@
                                (- x l) (+ y l)
                                (- x l) (- y l)])
                             true))
+                        ultrasonic-fill))))
+                draw-us-line
+                (fn [us-key]
+                  (let [{:keys [pos collision-pos]}
+                        (us-key real-state)]
+                    (when collision-pos
+                      (.drawLine cnv
+                        (:x pos) (:y pos)
+                        (:x collision-pos) (:y collision-pos)
                         ultrasonic-fill))))]
             (canvas/with-canvas
               (canvas/scale cnv scale)
+              
+              (draw-us-line :ultrasonic-1)
+              (draw-us-line :ultrasonic-2)
+              
               (canvas/translate cnv robot-x robot-y)
+              
               (canvas/rotate cnv (- angle 270))
               (canvas/translate cnv (- xmid) (- ymid))
               (.drawRect cnv (Rect/makeWH width length) border-stroke)
               ;; line sensors
+              
               (draw-line-sensor 1)
               (draw-line-sensor 2)
               (draw-line-sensor 3)
@@ -66,9 +82,9 @@
               ;; ultrasonic
               (draw-ultrasonic ultrasonic-1)
               (draw-ultrasonic ultrasonic-2)
+              
               ;; centre
               (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
-              
               )))}))))
 
 ; (def ui-board-robot

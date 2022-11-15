@@ -16,10 +16,10 @@
    
    :ultrasonic-1
    {:pos {:x -70 :y -70}
-    :angle 180}
+    :angle 270}
    :ultrasonic-2
    {:pos {:x 70 :y -70}
-    :angle 0}
+    :angle 90}
    })
 
 (def theme
@@ -33,9 +33,9 @@
 (defn get-line-sensor-pos [n]
   (let [{:keys [line-sensors-spacing centre-y
                 line-sensors-centre-spacing
-                length line-sensors-y]} dims
+                line-sensors-y]} dims
         centre-offset (/ line-sensors-centre-spacing 2)
-        offset (case n
+        offset (case (unchecked-int n)
                  4 (- 0 line-sensors-spacing centre-offset)
                  3 (- centre-offset)
                  2 centre-offset

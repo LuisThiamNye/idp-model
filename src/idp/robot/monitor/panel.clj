@@ -23,6 +23,7 @@
     [idp.robot.client :as client]
     [idp.loopthread :as loopth])
   (:import
+    (io.github.humbleui.jwm Window)
     [io.github.humbleui.types IRect IPoint Rect Point]
     [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint
      FontStyle Font Typeface FontWidth FontWeight FontSlant]
@@ -110,7 +111,7 @@
 (let [fill (paint/fill 0xFF89dddd)
       nodata-fill (paint/fill 0xFFa5c6c6)
       border-stroke (paint/stroke 0xFF505050 3)
-      max-dist 2000]
+      max-dist 800]
   (defn ui-ultrasonic [us-key]
     (ui/rect border-stroke
       (ui/padding 1
@@ -133,7 +134,7 @@
                      fill))))})
           (ui/dynamic ctx [dist (us-key (:robot-readings ctx))]
             (ui/center
-              (ui/label (str dist " mm")))))))))
+              (ui/label (str (format "%.1f" (float dist)) " mm")))))))))
 
 (def ui-ultrasonics
   (ui/dynamic _ [ui-ultrasonic ui-ultrasonic]
@@ -146,7 +147,8 @@
 (let [bg-fill (paint/fill 0xFFe0e0e0)
       active-fill (paint/fill 0xFF89dddd)
       nodata-fill (paint/fill 0xFFa5c6c6)
-      px-per-t 0.02]
+      px-per-t 0.02
+      max-dist 700]
   (def ui-ultrasonics-graph
     (ui/width 100
       (ui/canvas
@@ -158,20 +160,19 @@
               scale (:scale ctx)
               px-per-t (* scale px-per-t)
               gap (* scale 2)
-              seg-width (- (float (/ (:width size) 2)) (/ gap 2))
-              rect-height (:height size)
-              max-dist 2800]
+              seg-width (- (float (/ (:width size) 2))
+                          (/ gap 2))
+              rect-height (:height size)]
              (reduce
                (fn [y {:keys [ultrasonic-1 ultrasonic-2 dt]}]
                  (let [seg-height (* px-per-t dt)
                        y2 (+ y seg-height)
                        draw-bar
-                       (fn [ultrasonic left? ]
+                       (fn [ultrasonic left?]
                          (let [nodata? (= 0 ultrasonic)
-                               coeff (* seg-width
-                                       (if nodata?
-                                         1
-                                         (min 1 (/ ultrasonic max-dist))))
+                               coeff (if nodata?
+                                       1
+                                       (min 1 (float (/ ultrasonic max-dist))))
                                width (* coeff seg-width)]
                            (.drawRect cnv
                              (Rect/makeXYWH
@@ -220,7 +221,7 @@
                        y2 (unchecked-int (+ y seg-height))
                        draw-seg
                        (fn [n x]
-                         (let [on? (case n
+                         (let [on? (case (unchecked-int n)
                                      0 line-sensor-1
                                      1 line-sensor-2
                                      2 line-sensor-3
@@ -277,13 +278,42 @@
                     x2))
                 (max 0 (- (:width size) (* (- end start) seg-width)))
                 (subvec history start end))))})
-        (ui/halign 1 
+        (ui/halign 0
           (ui/valign 1
-            (ui/padding 5
+            (ui/padding 10 10
               (ui/dynamic ctx
-                [{:keys [dt]} (peek (:readings-history
-                                      (:robot-state ctx)))]
-                (ui/label (str dt " ms"))))))))))
+                [client (:client ctx)]
+                (let
+                  [ui-dropped
+                   (ui/clickable
+                     {:on-click
+                      (fn [_]
+                        (swap! (client/get-req-status-atom client)
+                          assoc
+                          :requests-dropped 0
+                          :requests-completed 0))}
+                     (ui/dynamic _
+                       [{ndropped :requests-dropped
+                         ncompleted :requests-completed}
+                        @(client/get-req-status-atom client)]
+                       (ui/label
+                         (let [nreqs (+ ndropped ncompleted)]
+                           (str ndropped #_#_"/" nreqs " ("
+                             (format "%.2f"
+                               (float
+                                 (if (zero? nreqs)
+                                   0.
+                                   (* 100 (/ ndropped nreqs)))))
+                             "%) lost")))))
+                   ui-latency
+                   (ui/dynamic ctx
+                    [{:keys [dt]} (peek (:readings-history
+                                          (:robot-state ctx)))]
+                    (ui/label (str dt " ms")))]
+                  (ui/column
+                   ui-latency
+                   (ui/gap 0 5)
+                   ui-dropped))))))))))
 
 (def *select-sim? (atom false))
 
@@ -291,7 +321,7 @@
   (ui/dynamic ctx
     [{looping? :client-looping?
       :keys [client-loop robot client]} ctx
-     robot-auto? (:auto? @(:*state robot))
+     robot-auto? (:auto? @(:*state robot) false)
      client-status (client/-get-status client)]
     (ui/row
       (let [*looping (atom looping?)]
@@ -409,30 +439,37 @@
                         [input (:robot-input ctx)]
                         (multiline-label
                           (fmt-data (dissoc input :motor-1 :motor-2)))))))]
+               (ui/dynamic ctx [*robot-state (:*state (:robot ctx))]
+                 (ui/clickable
+                   {:on-click
+                    (fn [_]
+                      (swap! *robot-state update :readings-history empty))}
+                  (ui/dynamic ctx
+                    [npoints (count (:readings-history (:robot-state ctx)))]
+                    (ui/label (str " Data points: " npoints)))))
                (ui/height 100 ui-latency-graph))]
             ui-ultrasonics-graph))))))
 
-(def app
-  (ui/dynamic ctx [ui-root ui-root
-                   wc common/with-context]
+(def *app (atom nil))
+(reset! *app
+  (ui/dynamic _ [ui-root ui-root
+                 wc common/with-context]
     (wc ui-root)))
 
-(def *app (atom nil))
-(reset! *app app)
-(def *window (atom nil))
+(def *window (agent nil))
 
 (defn open-window! []
-  (reset! *window
-    (ui/window
-      {:title    "Client Monitor"
-       :bg-color 0xFFFFFFFF
-       :exit-on-close? false}
-      *app)))
-
-(defn open-window-safe! []
-  (app/doui-async
-    (open-window!)))
-
-(comment
-  
-  )
+  (send *window
+    (fn [^Window prev-window]
+      (app/doui
+        (if (or (nil? prev-window)
+              (window/closed? prev-window))
+          (ui/window
+            {:title "IDP Client Monitor"
+             :bg-color 0xFFFFFFFF
+             :width 800
+             :height 800
+             :exit-on-close? false}
+            *app)
+          (do (.focus prev-window)
+            prev-window))))))

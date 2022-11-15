@@ -5,13 +5,85 @@
     [idp.robot.params :as robot.params]
     [idp.robot.state :refer [*real]]))
 
-(defn principal-angle [angle]
+(defn principal-angle
+  "Conforms angle to range [0, 360)"
+  [angle]
   (let [angle (rem angle 360)]
     #_(cond
       (< angle -180) (+ 360 angle)
       (< 180 angle) (- angle 360)
       :else angle)
     (double (if (< angle 0) (+ 360 angle) angle))))
+
+(defn ray-rect-collision-point
+  "Gets closest point where a ray hits a solid rectangle exterior"
+  [{:keys [x y] :as origin} angle {:keys [left right top bottom]}]
+  (let [closest-rect-x (cond
+                         (< x left)
+                         (when (or (< 270 angle) (< angle 90))
+                           left)
+                         (< right x)
+                         (when (and (< 90 angle) (< angle 270))
+                           right)
+                         :else :inside)
+        closest-rect-y (cond
+                         (< y top)
+                         (when (and (< 0 angle) (< angle 180))
+                           top)
+                         (< bottom y)
+                         (when (and (< 180 angle) (< angle 360))
+                           bottom)
+                         :else :inside)]
+    (if (and (= :inside closest-rect-x)
+          (= :inside closest-rect-y))
+      ;; origin inside the rectangle
+      origin
+      (let [rads (* Math/PI (/ angle 180))
+            dydx (Math/tan rads)
+            vpoint (when (number? closest-rect-x)
+                     (let [dx (- closest-rect-x x)
+                           y2 (+ y (* dx dydx))]
+                       (when (<= top y2 bottom)
+                         {:x  closest-rect-x :y y2})))
+            hpoint (when (number? closest-rect-y)
+                     (let [dy (- closest-rect-y y)
+                           x2 (+ x (/ dy dydx))]
+                       (when (<= left x2 right)
+                         {:x x2 :y  closest-rect-y})))]
+        (or vpoint hpoint)))))
+
+(defn ray-rect-interior-collision-point
+  "Gets closest point where a ray hits the interior wall of
+  a rectangular container"
+  [{:keys [x y] :as origin} angle {:keys [left right top bottom]}]
+  (let [closest-rect-x (cond
+                         (or (<= 270 angle) (< angle 90))
+                         right
+                         (and (<= 90 angle) (< angle 270))
+                         left)
+        closest-rect-y (cond
+                         (and (<= 0 angle) (< angle 180))
+                         bottom
+                         (and (<= 180 angle) (< angle 360))
+                         top)]
+    (let [rads (* Math/PI (/ angle 180))
+          dydx (Math/tan rads)
+          vpoint (let [dx (- closest-rect-x x)
+                       y2 (+ y (* dx dydx))]
+                   (when (<= top y2 bottom)
+                     {:x  closest-rect-x :y y2}))
+          hpoint (let [dy (- closest-rect-y y)
+                       x2 (+ x (/ dy dydx))]
+                   (when (<= left x2 right)
+                     {:x x2 :y  closest-rect-y}))]
+      (or vpoint hpoint))))
+
+(comment
+  (ray-rect-collision-point
+    {:x 0 :y 10} 0
+    {:left -10 :right -5
+     :top 5 :bottom 15})
+  )
 
 (defn tick! [dt-micros]
   (swap! *real
@@ -40,14 +112,57 @@
             (fn [n]
               (board.geo/point-on-line?
                 (absolutise-robot-point
-                  (robot.params/get-line-sensor-pos n))))]
+                  (robot.params/get-line-sensor-pos n))))
+            {:keys [tunnel-outer-wall-rect
+                    tunnel-inner-wall-rect
+                    board-rect]} (board.geo/get-line-geo)
+            sub-points (fn [p1 p2]
+                         {:x (- (:x p1) (:x p2))
+                          :y (- (:y p1) (:y p2))})
+            vec-abs (fn [{:keys [x y]}]
+                      (Math/sqrt
+                        (+ (Math/pow x 2)
+                          (Math/pow y 2))))
+            get-us-collision-data-for-rect
+            (fn [pos us-angle rect in-or-ext]
+              (let [collision-pos
+                    ((case in-or-ext
+                       :interior ray-rect-interior-collision-point
+                       :exterior ray-rect-collision-point)
+                     pos us-angle rect)]
+                (when collision-pos
+                  {:collision-pos collision-pos
+                   :distance (vec-abs (sub-points pos collision-pos))})))
+            get-us-data
+            (fn [us-key]
+              (let [us (us-key robot.params/dims)
+                    pos (absolutise-robot-point (:pos us))
+                    us-angle (principal-angle (+ angle (:angle us)))
+                    data
+                    (reduce
+                      (fn [winner [rect in-or-ext]]
+                        (let [data (get-us-collision-data-for-rect
+                                     pos us-angle rect in-or-ext)]
+                          (if (and data
+                                (< (:distance data) (:distance winner)))
+                            data winner)))
+                      {:distance ##Inf}
+                      [[tunnel-outer-wall-rect :exterior]
+                       [tunnel-inner-wall-rect :exterior]
+                       [board-rect :interior]])
+                    data (let [{:keys [distance collision-pos]} data
+                               in-range? (< 25 distance 2000)]
+                           (assoc data
+                             :distance (if in-range? distance 0)
+                             :collision-pos (when in-range? collision-pos)))]
+               (assoc data :pos pos)))]
         (assoc state
           :line-sensor-1 (get-line-sensor 1)
           :line-sensor-2 (get-line-sensor 2)
           :line-sensor-3 (get-line-sensor 3)
           :line-sensor-4 (get-line-sensor 4)
-          :ultrasonic-1 0
-          :ultrasonic-2 200
+          :ultrasonic-1 (get-us-data :ultrasonic-1)
+          :ultrasonic-2 (get-us-data :ultrasonic-2)
           :position position
           :angle (principal-angle angle)))))
   (sim.client/tick!))

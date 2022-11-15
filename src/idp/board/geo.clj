@@ -69,7 +69,9 @@
      (box-outer-rect (+ line-left-box-path-x
                        line-left-boxes-path-spacing
                        line-right-boxes-path-spacing))]
-    {:top-rect
+    {:board-rect (rect-xywh 0 0 board-width board-height)
+     
+     :top-rect
      (rect-ltrb
        (+ line-left-margin line-turn-outer-radius)
        line-top-margin
@@ -146,7 +148,15 @@
      :green-box-outer-rect green-box-outer-rect
      :red-box-inner-rect (shrink-outer-box red-box-outer-rect)
      :start-box-inner-rect (shrink-outer-box start-box-outer-rect)
-     :green-box-inner-rect (shrink-outer-box green-box-outer-rect)}))
+     :green-box-inner-rect (shrink-outer-box green-box-outer-rect)
+     
+     :tunnel-outer-wall-rect
+     (rect-xywh
+       (+ tunnel-wall-thickness tunnel-width) tunnel-y
+       tunnel-wall-thickness tunnel-length)
+     :tunnel-inner-wall-rect
+     (rect-xywh 0 tunnel-y
+       tunnel-wall-thickness tunnel-length)}))
 
 (let [*prev-rev (atom nil)
       *prev-ret (atom nil)]

@@ -19,7 +19,12 @@
     [io.github.humbleui.window :as window]
     [io.github.humbleui.font :as font]
     [io.github.humbleui.font :as typeface]
-    [idp.robot.sim.client :as sim.client]))
+    [idp.board.background :as board.bg]
+    [idp.robot.graphic :as robot.g]
+    [idp.board.params :as board.params]
+    [idp.robot.sim.ui :as robot.sim.ui])
+  (:import
+    (io.github.humbleui.jwm Window)))
 
 (defn with-monospace [child]
   (ui/dynamic ctx
@@ -113,3 +118,82 @@
             (zprint/zprint-str
               (dissoc state
                 :ready-req-queue :ready-res-queue :res-queue :req-queue))))))))
+
+(def ui-arena
+  (ui/mouse-listener
+    {:on-move (fn [_evt] false)}
+    (ui/with-bounds :arena-bounds
+      (ui/dynamic ctx
+        [ui-background board.bg/ui-background
+         ui-robot robot.g/ui-robot
+         dims board.params/dims
+         {:keys [board-width board-height]} dims
+         size (:arena-bounds ctx)]
+        (ui/with-context
+          {:dims dims
+           :board-scale (let [sf-x (/ (:x size) board-width)
+                              sf-y (/ (:y size) board-height)]
+                          (min sf-x sf-y))
+           :*robot-real-state robot.state/*real}
+          (ui/dynamic ctx [{:keys [board-scale scale]} ctx]
+            (ui/mouse-listener
+              {:on-button (fn [evt]
+                            (when (and (= :primary (:button evt))
+                                    (:pressed? evt))
+                              (let [scale (* board-scale scale)
+                                    pos {:x (/ (:x evt) scale) :y (/ (:y evt) scale)}]
+                                (swap! robot.state/*real assoc :position pos))))
+               :on-move (fn [evt]
+                          (swap! state/*misc assoc :mouse-on-line?
+                            (board.geo/point-on-line?
+                              (let [scale (* board-scale scale)
+                                    pos {:x (/ (:x evt) scale) :y (/ (:y evt) scale)}]
+                                ; (prn pos)
+                                pos))))}
+              (ui/stack
+                ui-background
+                ui-robot
+                (ui/canvas
+                  {:on-paint
+                   (fn [ctx _ _]
+                     (hui/schedule
+                       #(do
+                          (window/request-frame (:window ctx)))
+                       0))})))))))))
+
+(def ui-root
+  (ui/dynamic ctx
+    [ui-arena ui-arena
+     sim-controls robot.sim.ui/ui-controls
+     with-context common/with-context]
+    (with-context
+      (ui/column
+        (ui/halign 0.5
+          (ui/height
+            (fn [{:keys [width height]}]
+              (min height width))
+            (ui/width #(:height %)
+              ui-arena)))
+        sim-controls))))
+
+(def *app (atom nil))
+(reset! *app
+  (ui/dynamic _ [ui-root ui-root] ui-root))
+
+(def *window (agent nil))
+
+(defn open-sim-window! []
+  (send *window
+    (fn [^Window prev-window]
+      (app/doui
+        (if (or (nil? prev-window)
+              (window/closed? prev-window))
+          (ui/window
+            {:title "IDP Simulation"
+             :bg-color 0xFFFFFFFF
+             :width 500
+             :height 800
+             :exit-on-close? false}
+            *app)
+          (do (.focus prev-window)
+            prev-window))))))

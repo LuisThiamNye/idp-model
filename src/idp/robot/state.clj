@@ -24,8 +24,10 @@
      :line-sensor-2 false
      :line-sensor-3 false
      :line-sensor-4 false
-     :ultrasonic-1 0
-     :ultrasonic-2 0
+     :ultrasonic-1 {:pos {:x -1 :y -1}
+                    :collision-pos {:x -1 :y -1}}
+     :ultrasonic-2 {:pos {:x -1 :y -1}
+                    :collision-pos {:x -1 :y -1}}
      }))
 (reset-real!)
 

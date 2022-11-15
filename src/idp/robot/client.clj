@@ -24,6 +24,8 @@
     (or (.get req-status-atoms client)
       (let [res (atom {:waiting? false
                        :req-time nil
+                       :requests-dropped 0
+                       :requests-completed 0
                        :id 0})]
         (.put req-status-atoms client res)
         res))))
@@ -57,13 +59,18 @@
         (assoc (conform-input input) :id id)))
     (if-some [res (-get-response! client)]
       (do
-        (swap! *req-status assoc
-          :waiting? false
-          :id (if (= 255 id) 0 (inc id)))
+        (swap! *req-status
+          (fn [s]
+            (-> s
+              (update :requests-completed inc)
+              (assoc
+                :waiting? false
+                :id (if (= 255 id) 0 (inc id))))))
         res)
       (when (< response-timeout
               (- (System/currentTimeMillis) (:req-time @*req-status)))
         (println "Response timed out!")
+        (swap! *req-status update :requests-dropped inc)
         (reset-connection! client)
         nil))))
 

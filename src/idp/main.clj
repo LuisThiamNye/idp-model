@@ -1,18 +1,11 @@
 (ns idp.main
   (:require
-    [taoensso.encore :as enc]
     [babashka.fs :as fs]
-    [clojure.main]
     [nrepl.core :as nrepl]
     [nrepl.cmdline]
     [nrepl.server]
-    [idp.uiroot :as uiroot]
-    [idp.sim]
-    [idp.robot.autopilot]
-    [idp.robot.monitor.panel :as monitor.panel]
+    [io.github.humbleui.ui :as ui]
     [chic.debug.nrepl :as debug.nrepl]))
-
-;; (set! *warn-on-reflection* true)
 
 (def nrepl-server nil)
 (def nrepl-transport nil)
@@ -34,27 +27,21 @@
             (nrepl.server/stop-server server)
             nil))))))
 
-(def *threads (atom {}))
-
 (defn on-shutdown []
   (fs/delete-if-exists ".nrepl-port"))
 
 (defn start-app! []
-  (idp.uiroot/start-ui!))
+  (ui/start-app!)
+  ((requiring-resolve 'idp.hub/open-hub-window!)))
 
 (defn -main [& args]
   (start-nrepl-server!)
   (.addShutdownHook (Runtime/getRuntime)
     (Thread. #'on-shutdown))
-  (when (not-any? #{"nostart"} args) (start-app!))
+  (when (some #{"reflection"} args)
+    (println "Enabled *warn-on-reflection*")
+    (set! *warn-on-reflection* true))
+  (println "Starting application")
+  (start-app!)
   (println "Initialised"))
 
-(comment
-  (monitor.panel/open-window-safe!)
-  (uiroot/open-sim-window!)
-  
-  (start-app!)
-  (start-nrepl-server!)
-  (debug.nrepl/add-middleware (nrepl/client nrepl-transport 1000))
-  
-  )

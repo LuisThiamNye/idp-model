@@ -36,33 +36,33 @@
   )
 
 (defn tick! [params dt]
-  ; (println "tick")
   (let [speed (max 0.001 @robot.state/*sim-speed)
         del (* 2 (/ @robot.state/*sim-dt 1000.))
         sleep-ms (min 1000 (max 0 (int (/ del speed))))]
     (when (< speed 10)
-      (Thread/sleep sleep-ms)))
-  (let [robot (:robot params)
-        *readings (:*readings robot)
-        prev-readings @*readings
-        t-presync (System/currentTimeMillis)]
-    (client/sync! @(:*client params) (:robot params))
-    (let [*state (:*state robot)
-          t-postsync (System/currentTimeMillis)]
-      (when-not (identical? prev-readings @*readings)
-        ; (prn (= prev-readings @*readings))
-        ; (prn (:time-received prev-readings))
-        (swap! *state update :readings-history conj
-          (swap! *readings assoc
-            :time-received t-postsync
-            ;; time sine the last response
-            :dt (- t-postsync
-                  (if prev-readings
-                    (:time-received prev-readings t-presync)
-                    t-presync))))
-        (when (:auto? @*state)
-          (let [readings @*readings]
-            (swap! (:*input robot) merge (travel/tick! *state readings))))))))
+      (Thread/sleep sleep-ms))
+    (let [robot (:robot params)
+          *readings (:*readings robot)
+          prev-readings @*readings
+          t-presync (System/currentTimeMillis)]
+      (client/sync! @(:*client params) (:robot params))
+      (let [*state (:*state robot)
+            t-postsync (System/currentTimeMillis)]
+        (when-not (identical? prev-readings @*readings)
+          ; (prn (= prev-readings @*readings))
+          ; (prn (:time-received prev-readings))
+          (swap! *state update :readings-history conj
+            (swap! *readings assoc
+              :time-received t-postsync
+              ;; time since the last response
+              :dt (* (- t-postsync
+                       (if prev-readings
+                         (:time-received prev-readings t-presync)
+                         t-presync))
+                    speed)))
+          (when (:auto? @*state)
+            (let [readings @*readings]
+              (swap! (:*input robot) merge (travel/tick! *state readings)))))))))
 
 (defn tick-fn [params]
   #(tick! params %))
@@ -91,8 +91,9 @@
     )
   
   (swap! (:*state active-robot) merge
-    travel/state0-exit-start
+    ; travel/state0-exit-start
     ; travel/state0-basic-follow
+    travel/state0-tunnel-approach
     )
   
   (swap! (:*input active-robot) assoc

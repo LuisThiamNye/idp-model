@@ -38,7 +38,7 @@
 (defn rand-response-latency []
   (rand-send-latency))
 (defn rand-request-drop? []
-  ; (< (rand) 0.4)
+  ; (< (rand) 0.1)
   false
   )
 (defn rand-response-drop? []
@@ -187,14 +187,17 @@
         state @*state
         paused? (:paused? state)
         readings (:latest-readings state)
+        real-state @robot.state/*real
         readings'
-        (select-keys @robot.state/*real
+        (select-keys real-state
           [:line-sensor-1
            :line-sensor-2
            :line-sensor-3
-           :line-sensor-4
-           :ultrasonic-1
-           :ultrasonic-2])
+           :line-sensor-4])
+        readings'
+        (assoc readings' 
+          :ultrasonic-1 (:distance (:ultrasonic-1 real-state))
+          :ultrasonic-2 (:distance (:ultrasonic-2 real-state)))
         readings' (update-line-switches readings readings')]
     (swap! *state assoc :latest-readings readings')
     (if-some [input (process-queues *state :req-queue :ready-req-queue)]

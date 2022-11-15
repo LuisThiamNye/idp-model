@@ -55,6 +55,8 @@
              turn-square-length (* 2 line-turn-outer-radius)
              turn-insquare-length (* 2 line-turn-radius)
              line-bottom-yb (- board-height line-bottom-margin)
+             {:keys [tunnel-outer-wall-rect
+                     tunnel-inner-wall-rect]} (board.geo/get-line-geo)
              ->rect #(Rect. (:left %) (:top %) (:right %) (:bottom %))]
          (.drawRect cnv (Rect/makeWH (.toPoint size)) board-border-bg)
          (canvas/with-canvas cnv
@@ -62,12 +64,8 @@
            (.drawRect cnv (Rect. 0 0 board-width board-height) board-bg)
            
            ;; Tunnel
-           (.drawRect cnv (Rect/makeXYWH 0 tunnel-y
-                            tunnel-wall-thickness tunnel-length)
-            barrier-bg)
-           (.drawRect cnv (Rect/makeXYWH (+ tunnel-wall-thickness tunnel-width) tunnel-y
-                            tunnel-wall-thickness tunnel-length)
-            barrier-bg)
+           (.drawRect cnv (->rect tunnel-inner-wall-rect) barrier-bg)
+           (.drawRect cnv (->rect tunnel-outer-wall-rect) barrier-bg)
            (.drawRect cnv (Rect/makeXYWH tunnel-wall-thickness tunnel-y
                             tunnel-width tunnel-length)
             tunnel-bg)
