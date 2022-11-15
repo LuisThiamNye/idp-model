@@ -1,19 +1,18 @@
 
-Possible fix for line ending problems:
-
-`git config core.autocrlf true`
+# Part IB Integrated Design Project
 
 To run:
 
 `clj -M:dev`
 
-Remember to connect to repl
-Go to main.clj
-Run top 2 lines in comment form at bottom of main.clj
+Overview:
 
-```
-(monitor.panel/open-window-safe!)
-  (uiroot/open-sim-window!)
-```
+- Simulation of robot on the table.
+- Autopilot for simulation and WiFi-connected robot.
+- Live visualisations of sensor data.
 
-click on red square when things go wrong
+
+---
+
+Copyright 2022 Luis Thiam-Nye
+
