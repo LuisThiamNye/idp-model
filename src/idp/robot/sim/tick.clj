@@ -13,10 +13,10 @@
       :else angle)
     (double (if (< angle 0) (+ 360 angle) angle))))
 
-(defn tick! [dt]
+(defn tick! [dt-micros]
   (swap! *real
     (fn [{:keys [position angle velocity angular-velocity] :as state}]
-      (let [dt (/ dt 1000)
+      (let [dt (/ dt-micros 1000000)
             angle' (* (/ angle 180) Math/PI)
             dx (* dt velocity (Math/cos angle'))
             dy (* dt velocity (Math/sin angle'))

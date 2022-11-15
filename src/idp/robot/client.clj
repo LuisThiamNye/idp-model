@@ -30,19 +30,31 @@
 
 (defn reset-connection! [client]
   (swap! (get-req-status-atom client) assoc
-    :waiting? false :req-time nil)
+    :waiting? false
+    :req-time nil)
   (-reset-client! client))
+
+(defn conform-input
+  [{:keys [motor-1 motor-2] :as input}]
+  (-> input
+    (cond-> (< 255 motor-1)
+      (assoc :motor-1 255))
+    (cond-> (< 255 motor-2)
+      (assoc :motor-2 255))
+    (cond-> (< motor-1 -255)
+      (assoc :motor-1 -255))
+    (cond-> (< motor-2 -255)
+      (assoc :motor-2 -255))))
 
 (defn sendrecv!
   [client input]
   (let [*req-status (get-req-status-atom client)
         {:keys [waiting? id]} @*req-status]
     (when-not waiting?
-      ; (prn "sending")
       (swap! *req-status assoc
         :waiting? true :req-time (System/currentTimeMillis))
       (-send-input! client
-        (assoc input :id id)))
+        (assoc (conform-input input) :id id)))
     (if-some [res (-get-response! client)]
       (do
         (swap! *req-status assoc

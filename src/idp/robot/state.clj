@@ -7,6 +7,8 @@
     [io.github.humbleui.debug :as debug]))
 
 (def *real (atom nil))
+(def *sim-speed (atom 1))
+(def *sim-dt (atom 5)) ;; in μs
 
 (defn reset-real! []
   (reset! *real
@@ -32,6 +34,9 @@
    :motor-2 0
    :ultrasonic-active? false})
 
+(def initial-state
+  {:readings-history []})
+
 (def initial-readings
   {:line-sensor-1 false
    :line-sensor-2 false
@@ -50,7 +55,7 @@
 
 (defn make-initial-robot []
   {:*readings (atom initial-readings)
-   :*state (atom {})
+   :*state (atom initial-state)
    :*input (atom initial-input)})
 
 (def sim-robot (make-initial-robot))
@@ -69,3 +74,10 @@
   
   (swap! (:*state robot1) assoc :mode :stop)
   )
+
+(defn get-line-sensors [readings]
+  (mapv #(if % :white :black)
+    [(:line-sensor-1 readings)
+     (:line-sensor-2 readings)
+     (:line-sensor-3 readings)
+     (:line-sensor-4 readings)]))

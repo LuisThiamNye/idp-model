@@ -37,7 +37,11 @@
 
 (defn tick! [params dt]
   ; (println "tick")
-  (Thread/sleep 20)
+  (let [speed (max 0.001 @robot.state/*sim-speed)
+        del (* 2 (/ @robot.state/*sim-dt 1000.))
+        sleep-ms (min 1000 (max 0 (int (/ del speed))))]
+    (when (< speed 10)
+      (Thread/sleep sleep-ms)))
   (let [robot (:robot params)
         *readings (:*readings robot)
         prev-readings @*readings
@@ -54,7 +58,7 @@
             ;; time sine the last response
             :dt (- t-postsync
                   (if prev-readings
-                    (:time-received prev-readings)
+                    (:time-received prev-readings t-presync)
                     t-presync))))
         (when (:auto? @*state)
           (let [readings @*readings]
@@ -76,29 +80,25 @@
        :*client net.api/*client})))
 
 (comment
-  (loopth/start-loop! *sim-loop)
-  (loopth/stop-loop! *sim-loop)
-  (loopth/loop-running? *sim-loop)
+  (def active-robot robot.state/sim-robot)
   
   (hash @sim.client/*client)
   
-  (swap! travel/*state assoc :mode
+  (swap! (:*state active-robot) assoc :mode
     ; :simple-follow
     ; :tight-follow
     :enter-tunnel
     )
   
-  (swap! api/*input assoc
+  (swap! (:*state active-robot) merge
+    travel/state0-exit-start
+    ; travel/state0-basic-follow
+    )
+  
+  (swap! (:*input active-robot) assoc
     :ultrasonic-active? true)
   
-  (reset! (:*state robot.state/sim-robot)
-    {:auto? true
-     :mode :exit-start
-     :readings-history []
-     :over-horiz? false
-     :n-horiz-found 0
-     :deviation :none})
-  
-  
+  (reset! (:*state active-robot)
+    robot.state/initial-state)
   
   )

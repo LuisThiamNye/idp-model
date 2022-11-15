@@ -34,11 +34,13 @@
     initial-brain-state))
 
 (defn rand-send-latency []
-  (+ 20 (rand-int 60)))
+  (+ 0 (rand-int 2)))
 (defn rand-response-latency []
   (rand-send-latency))
 (defn rand-request-drop? []
-  (< (rand) 0.05))
+  ; (< (rand) 0.4)
+  false
+  )
 (defn rand-response-drop? []
   (rand-request-drop?))
 
@@ -69,46 +71,23 @@
                                :status :connected)))
           client)))))
 
-(defn send-response! [*state]
-  (when (:retry? @*state)
-    (swap! *state
-      (fn [{:keys [sent-readings latest-readings] :as state}]
-        (if (nil? sent-readings)
-          state
-          (-> state
-            (dissoc :sent-readings)
-            (assoc :latest-readings
-              (update latest-readings :line-switches
-               (fn [switches]
-                 (mapv (fn [prev cur]
-                         (+ prev cur))
-                   (:line-switches sent-readings)
-                   switches)))))))))
-  (let [response (:latest-readings @*state)]
-    (when-not (rand-response-drop?)
-      (swap! *state update :res-queue conj
-        {:timestamp (System/currentTimeMillis)
-         :latency (rand-response-latency)
-         :message response}))
-    (swap! *state
-      (fn [state]
-        (-> state
-          (assoc :sent-readings response)
-          (assoc-in [:latest-readings :line-switches] [0 0 0 0]))))))
+(defn motor-speed->coeff [spd]
+  (let [spd (/ spd 255.)
+        motor-offset 0.16]
+    (max 0 (min 1 (if (neg? spd)
+                    (min 0 (+ spd motor-offset))
+                    (max 0 (- spd motor-offset)))))))
 
 (defn process-input! [input]
   (let
     [{:keys [motor-1 motor-2]} input
      {:keys [max-rpm wheel-diameter wheel-spacing]}
      robot.params/dims
-     motor-thres 40
      motor->v
      (fn [spd]
        (let
-         [rpm (* max-rpm (max 0 (min 1 (/ (if (neg? spd)
-                                            (min 0 (+ spd motor-thres))
-                                            (max 0 (- spd motor-thres)))
-                                           255))))
+         [rpm (* max-rpm
+                (motor-speed->coeff spd))
                 rps (/ rpm 60)
                 circumference (* Math/PI wheel-diameter)]
          (* circumference rps)))
@@ -120,16 +99,6 @@
       (* (/ (- motor1-v motor2-v)
            wheel-spacing)
         (/ 180 Math/PI)))))
-
-(defn process-request! [*state req]
-  ;; important to use id rather than :retry? bit or else cannot
-  ;; distinguish between dropped messages on req/response
-  (swap! *state
-    (fn [state]
-      (assoc state
-        :retry? (= (:req-id state) (:id req))
-        :req-id (:id req))))
-  (process-input! req))
 
 (defn process-queues [*state fromqk toqk]
   (let [state @*state
@@ -143,6 +112,52 @@
                          (update fromqk pop)
                          (update toqk conj msg)))
         msg))))
+
+(defn send-response!* [*state response]
+  (when-not (rand-response-drop?)
+    (swap! *state update :res-queue conj
+      {:timestamp (System/currentTimeMillis)
+       :latency (rand-response-latency)
+       :message response})))
+
+(defn combine-prev-response [*state]
+  (swap! *state
+    (fn [{:keys [sent-readings latest-readings] :as state}]
+      (if (nil? sent-readings)
+        state
+        (-> state
+          (dissoc :sent-readings)
+          (assoc :latest-readings
+            (update latest-readings :line-switches
+              (fn [switches]
+                (mapv (fn [prev cur]
+                        (+ prev cur))
+                  (:line-switches sent-readings)
+                  switches)))))))))
+
+(defn propagate-response [*state]
+  (swap! *state
+    (fn [state]
+      (-> state
+        (assoc :sent-readings (:latest-readings state))
+        (assoc-in [:latest-readings :line-switches] [0 0 0 0])))))
+
+(defn process-request! [*state req]
+  ;; important to use id rather than :retry? bit or else cannot
+  ;; distinguish between dropped messages on req/response
+  (swap! *state
+    (fn [state]
+      (assoc state
+        :retry? (= (:req-id state) (:id req))
+        :req-id (:id req))))
+  (process-input! req))
+
+(defn send-response! [*state]
+  (when (:retry? @*state)
+    (combine-prev-response *state))
+  (let [response (:latest-readings @*state)]
+    (send-response!* *state response)
+    (propagate-response *state)))
 
 (defn update-line-switches [readings readings']
   (update (merge readings readings')

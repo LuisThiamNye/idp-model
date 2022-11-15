@@ -6,7 +6,7 @@
         chic/chic {:local/root "../chic"}
         
         io.github.humbleui/humbleui {:git/url "https://github.com/HumbleUI/HumbleUI"
-                                     :git/sha "33fb03efc8feb10cfaf4d0e4326fb002d0f81ebb"}
+                                     :git/sha "ed76cccaec34c6127c45d43a7655a80aba666114"}
         io.github.humbleui/types$clojure {:mvn/version "0.1.2"}
         io.github.humbleui/jwm {:mvn/version "0.4.10" :exclusions [io.github.humbleui/types]}
         io.github.humbleui/skija-windows {:mvn/version "0.106.0" :exclusions [io.github.humbleui/types]}

@@ -37,6 +37,11 @@
 (defn unsign-byte [n]
   (unsign n 1))
 
+(defn as-signed-byte [n]
+  (byte (if (< 127 n)
+          (- n 256)
+          n)))
+
 (defn decode-response [^"[B" res-bytes]
   (let [linef-byte (aget res-bytes 0)
         us-byte1 (aget res-bytes 1)
@@ -47,6 +52,13 @@
      :line-sensor-2 (bit-test linef-byte 6)
      :line-sensor-3 (bit-test linef-byte 5)
      :line-sensor-4 (bit-test linef-byte 4)
+     :line-switches
+     (let [b1 (aget res-bytes 5)
+           b2 (aget res-bytes 6)]
+       [(unsign-byte (bit-shift-right b1 4))
+        (unsign-byte (bit-and b1 2r1111))
+        (unsign-byte (bit-shift-right b2 4))
+        (unsign-byte (bit-and b2 2r1111))])
      :ultrasonic-1
      (+ (unsign (bit-shift-left us-byte1 8) 2)
        (unsign-byte us-byte2))
@@ -58,45 +70,50 @@
   (min 255 (max 0 (abs s))))
 
 (defn send-input! [conn input]
-  (let [{:keys [motor-1 motor-2 ultrasonic-active?]} input]
-    (net/send-bytes! conn
-      [(make-insn-byte
-         {:set-motor? true
-          :motor1-rev? (neg? motor-1)
-          :motor2-rev? (neg? motor-2)
-          :get-ultrasonic-data? ultrasonic-active?})
-       (clamp-motor-speed motor-1)
-       (clamp-motor-speed motor-2)
-       0 0 0])))
+  (let [{:keys [motor-1 motor-2 ultrasonic-active? id]} input
+        req-bytes
+        [(make-insn-byte
+           {:set-motor? true
+            :motor1-rev? (neg? motor-1)
+            :motor2-rev? (neg? motor-2)
+            :get-ultrasonic-data? ultrasonic-active?})
+         (clamp-motor-speed motor-1)
+         (clamp-motor-speed motor-2)
+         0
+         (as-signed-byte id)
+         0]]
+    ; (prn req-bytes)
+    (net/send-bytes! conn req-bytes)))
 
 (defn get-response! [conn]
   (some-> (net/read-all-bytes! conn)
     decode-response))
 
-(defrecord NetClient [conn])
+(defrecord NetClient [*conn])
 
-(def *client (agent (->NetClient @net/*conn)))
+(def *client (agent (->NetClient net/*conn)))
 
 (extend-type NetClient client/Client
-  (-get-status [self] (:status self))
+  (-get-status [self] (:status @(:*conn self)))
   (-get-response! [self]
-    (get-response! (:conn self)))
+    (get-response! @(:*conn self)))
   (-send-input! [self input]
-    (send-input! (:conn self) input))
+    (send-input! @(:*conn self) input))
   (-reset-client! [self]
     (net/reset-conn!)
-    (send *client
+    #_(send *client
       (fn [client]
         (if (identical? client self)
           (->NetClient @net/*conn)
           client)))))
 
 (comment
-  (net/send-bytes!
+  (net/send-bytes! @net/*conn
     [(make-insn-byte {:set-motor? true
                       :motor1-rev? false
                       :motor2-rev? false})
      0 0
      0 0 0])
+  (net/read-all-bytes! @net/*conn)
   
   )
