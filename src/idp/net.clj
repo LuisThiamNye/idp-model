@@ -109,22 +109,23 @@ Windows device via mobile hotspot."
                     :status :failed})
                  conn))))))}))
 
-(defn reset-conn! []
+(defn reset-conn! [conn0]
   (let [res (promise)]
     (send *conn
       (fn [conn]
-        (if (= :connecting (:status conn))
-          (do
-            (deliver res conn)
-            conn)
+        (if (= conn conn0)
           (try
+            (println "Net: Resetting connection")
             (let [conn' (do (close-conn conn)
                           (connect-conn))]
               (deliver res conn')
               conn')
             (catch Throwable e
               (deliver res nil)
-              (throw e))))))
+              (throw e)))
+          (do
+            (deliver res conn)
+            conn))))
     res))
 
 (defn shutdown-hook []

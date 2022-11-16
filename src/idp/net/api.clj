@@ -2,6 +2,7 @@
   (:require
     [clojure.data :as data]
     [idp.net :as net]
+    [idp.common :refer [future-virtual]]
     [idp.robot.client :as client])
   (:import
     (java.net Socket)
@@ -110,8 +111,11 @@
 (extend-type NetClient client/Client
   (-get-connection [{:keys [*conn]}]
     (->NetConnection @*conn))
-  (-reset-connection! [_self]
-    @(net/reset-conn!)))
+  (-reset-connection! [_self conn]
+    (let [p (promise)]
+      (future-virtual
+        (deliver p @(net/reset-conn! (:conn conn))))
+      p)))
 
 (comment
   (send *client (constantly (->NetClient (atom @net/*conn))))

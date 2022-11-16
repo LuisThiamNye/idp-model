@@ -18,7 +18,7 @@
 
 (defprotocol Client
   (-get-connection [_])
-  (-reset-connection! [_]))
+  (-reset-connection! [_ conn]))
 
 (def ^java.util.Map req-status-atoms
   "client → atom"
@@ -35,11 +35,11 @@
         (.put req-status-atoms client res)
         res))))
 
-(defn reset-connection! [client]
+(defn reset-connection! [client conn]
   (swap! (get-req-status-atom client) assoc
     :status :connecting
     :req-time nil)
-  (-reset-connection! client))
+  @(-reset-connection! client conn))
 
 (defn conform-input
   [{:keys [motor-1 motor-2] :as input}]
@@ -81,7 +81,7 @@
       (cond
         failed-to-send?
         (do (println "net.api: Failed to send")
-          (reset-connection! client))
+          (reset-connection! client conn))
         (let [{:keys [req-time]} @*req-status]
           (when req-time
             (< response-timeout
@@ -89,7 +89,7 @@
         (do
           (println "net.api: Response timed out!")
           (swap! *req-status update :requests-dropped inc)
-          (reset-connection! client)
+          (reset-connection! client conn)
           nil)))
     (when response
       (swap! *req-status
@@ -111,7 +111,7 @@
           (reset! *readings readings))
         (catch IOException e
           (prn e)
-          (reset-connection! client)))
+          (reset-connection! client conn)))
       (when-not (= :connecting conn-status)
         (println "net.api: Not connected; connecting")
-        (reset-connection! client)))))
+        (reset-connection! client conn)))))

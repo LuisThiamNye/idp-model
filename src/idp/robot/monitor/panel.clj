@@ -9,7 +9,7 @@
     [idp.state :as state]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
-    [idp.common :as common :refer [multiline-label]]
+    [idp.common :as common :refer [multiline-label future-virtual]]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.core :as hui]
     [io.github.humbleui.protocols :as protocols]
@@ -366,7 +366,8 @@
           (ui/label "Auto")))
       (ui/gap 5 0)
       (ui/button
-        (fn [] (client/reset-connection! client))
+        (fn []
+          (client/reset-connection! client (client/-get-connection client)))
         (ui/label "Reset"))
       (ui/gap 5 0)
       (ui/dynamic _ [conn-status (client/-get-status

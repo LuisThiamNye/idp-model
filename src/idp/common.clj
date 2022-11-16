@@ -12,6 +12,12 @@
       Typeface FontStyle FontWeight FontWidth FontSlant)
     (java.lang AutoCloseable)))
 
+(defmacro future-virtual [& body]
+  `(let [p# (promise)]
+     (.start (Thread/ofVirtual)
+       (fn [] (deliver p# (do ~@body))))
+     p#))
+
 (def code-typeface (Typeface/makeFromName "Input Mono"
                         (FontStyle.
                           FontWeight/NORMAL
