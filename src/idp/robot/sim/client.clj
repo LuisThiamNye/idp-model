@@ -44,7 +44,7 @@
 (defn rand-response-drop? []
   (rand-request-drop?))
 
-(extend-type SimClient client/Client
+(extend-type SimClient client/Connection
   (-get-status [self] (:status @(:*state self)))
   
   (-get-response! [{:keys [*state]}]
@@ -59,7 +59,7 @@
         {:timestamp (System/currentTimeMillis)
          :latency (rand-send-latency)
          :message input})))
-  
+  #_
   (-reset-client! [self]
     (swap! (:*state self) merge
       (assoc initial-client-state

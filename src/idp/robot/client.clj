@@ -9,12 +9,16 @@
 (def response-timeout 200)
 ; (def response-timeout ##Inf)
 
-(defprotocol Client
-  (-reset-client! [_])
+;; One client per socket connection
+(defprotocol Connection
   (-get-status [_])
   (-send-input! [_ input])
   (-get-response! [_]
     "Response of robot including measurements. Nil if not yet available."))
+
+(defprotocol Client
+  (-get-connection [_])
+  (-reset-connection! [_]))
 
 (def ^java.util.Map req-status-atoms
   "client → atom"
@@ -35,7 +39,7 @@
   (swap! (get-req-status-atom client) assoc
     :status :connecting
     :req-time nil)
-  (-reset-client! client))
+  (-reset-connection! client))
 
 (defn conform-input
   [{:keys [motor-1 motor-2] :as input}]
@@ -50,7 +54,7 @@
       (assoc :motor-2 -255))))
 
 (defn sendrecv!
-  [client input]
+  [client conn input]
   (let
     [*req-status (get-req-status-atom client)
      {:keys [status id]} @*req-status
@@ -58,7 +62,7 @@
      sent?
      (when want-to-send?
        (try
-         (-send-input! client
+         (-send-input! conn
            (assoc (conform-input input) :id id))
          (swap! *req-status assoc
            :status :waiting
@@ -71,7 +75,7 @@
            false)))
      failed-to-send? (and want-to-send? (not sent?))
      response (when-not failed-to-send?
-                (try (-get-response! client)
+                (try (-get-response! conn)
                   (catch IOException _)))]
     (when-not response
       (cond
@@ -99,16 +103,15 @@
 
 (defn sync! [client {:keys [*input *readings]}]
   (assert (.isVirtual (Thread/currentThread)))
-  (let [client-status (-get-status client)]
-    (if (= :connected client-status)
+  (let [conn (-get-connection client)
+        conn-status (-get-status conn)]
+    (if (= :connected conn-status)
       (try
-        (let [t1 (System/currentTimeMillis)]
-          (when-some [readings (sendrecv! client @*input)]
-            (reset! *readings readings))
-          #_(println "Network time " (- (System/currentTimeMillis) t1)))
+        (when-some [readings (sendrecv! client conn @*input)]
+          (reset! *readings readings))
         (catch IOException e
           (prn e)
           (reset-connection! client)))
-      (when-not (= :connecting client-status)
+      (when-not (= :connecting conn-status)
         (println "net.api: Not connected; connecting")
         (reset-connection! client)))))

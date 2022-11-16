@@ -369,8 +369,9 @@
         (fn [] (client/reset-connection! client))
         (ui/label "Reset"))
       (ui/gap 5 0)
-      (ui/dynamic _ [client-status (client/-get-status client)]
-        (ui/valign 0.5 (ui/label client-status)))
+      (ui/dynamic _ [conn-status (client/-get-status
+                                   (client/-get-connection client))]
+        (ui/valign 0.5 (ui/label conn-status)))
       (ui/gap 5 0)
       (ui/checkbox *select-sim? (ui/label "Sim")))))
 

@@ -114,7 +114,9 @@ Windows device via mobile hotspot."
     (send *conn
       (fn [conn]
         (if (= :connecting (:status conn))
-          conn
+          (do
+            (deliver res conn)
+            conn)
           (try
             (let [conn' (do (close-conn conn)
                           (connect-conn))]
@@ -123,7 +125,7 @@ Windows device via mobile hotspot."
             (catch Throwable e
               (deliver res nil)
               (throw e))))))
-    @res))
+    res))
 
 (defn shutdown-hook []
   (send-off *conn close-conn))

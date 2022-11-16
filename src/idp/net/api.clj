@@ -89,26 +89,29 @@
   (some-> (net/read-all-bytes! conn)
     decode-response))
 
+(defrecord NetConnection [conn])
+
 (defrecord NetClient [*conn])
 
-(def *client (agent (->NetClient net/*conn)))
+(def *client (atom (->NetClient net/*conn)))
+
+(extend-type NetConnection client/Connection
+  (-get-status [{:keys [conn]}] (:status conn))
+  (-get-response! [{:keys [conn]}]
+    (when (nil? conn)
+      (throw (IOException. "no connection")))
+    (get-response! conn))
+  (-send-input! [{:keys [conn]} input]
+    (when (nil? conn)
+      (throw (IOException. "no connection")))
+    (send-input! conn input))
+  )
 
 (extend-type NetClient client/Client
-  (-get-status [self] (:status @(:*conn self)))
-  (-get-response! [self]
-    ; (println "getting")
-    (get-response! @(:*conn self)))
-  (-send-input! [self input]
-    ; (println "recv")
-    (send-input! @(:*conn self) input))
-  (-reset-client! [self]
-    (net/reset-conn!)
-    ; (reset! (:*conn self) )
-    #_(send *client
-      (fn [client]
-        (if (identical? client self)
-          (->NetClient net/*conn)
-          client)))))
+  (-get-connection [{:keys [*conn]}]
+    (->NetConnection @*conn))
+  (-reset-connection! [_self]
+    @(net/reset-conn!)))
 
 (comment
   (send *client (constantly (->NetClient (atom @net/*conn))))
