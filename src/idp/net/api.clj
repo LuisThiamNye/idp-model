@@ -96,18 +96,22 @@
 (extend-type NetClient client/Client
   (-get-status [self] (:status @(:*conn self)))
   (-get-response! [self]
+    ; (println "getting")
     (get-response! @(:*conn self)))
   (-send-input! [self input]
+    ; (println "recv")
     (send-input! @(:*conn self) input))
   (-reset-client! [self]
     (net/reset-conn!)
+    ; (reset! (:*conn self) )
     #_(send *client
       (fn [client]
         (if (identical? client self)
-          (->NetClient @net/*conn)
+          (->NetClient net/*conn)
           client)))))
 
 (comment
+  (send *client (constantly (->NetClient (atom @net/*conn))))
   (net/send-bytes! @net/*conn
     [(make-insn-byte {:set-motor? true
                       :motor1-rev? false

@@ -19,9 +19,15 @@
                (let [state @*loop]
                  (when (= (Thread/currentThread) (:thread state))
                    (let [t2 (System/currentTimeMillis)
-                         tick-fn (:tick-fn state)]
-                     (tick-fn (- t2 t))
-                     (recur t2)))))))]
+                         tick-fn (:tick-fn state)
+                         continue?
+                         (try
+                           (tick-fn (- t2 t))
+                           true
+                           (catch InterruptedException e
+                             false))]
+                     (when continue?
+                       (recur t2))))))))]
         (assoc state
           :thread new-thread)))))
 

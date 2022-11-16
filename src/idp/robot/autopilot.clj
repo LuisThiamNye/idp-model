@@ -36,10 +36,12 @@
   )
 
 (defn tick! [params dt]
-  (let [speed (max 0.001 @robot.state/*sim-speed)
-        del (* 2 (/ @robot.state/*sim-dt 1000.))
+  (let [speed (max 0.001 @(:*speed params))
+        state @(:*state params)
+        del (or (:delay state)
+              (* 2 (/ @robot.state/*sim-dt 1000.)))
         sleep-ms (min 1000 (max 0 (int (/ del speed))))]
-    (when (< speed 10)
+    (when (< 0 sleep-ms)
       (Thread/sleep sleep-ms))
     (let [robot (:robot params)
           *readings (:*readings robot)
@@ -71,12 +73,19 @@
   (loopth/make-loop
     (tick-fn
       {:robot robot.state/sim-robot
+       :*state (atom {:delay 2})
+       :*speed robot.state/*sim-speed
        :*client sim.client/*client})))
+
+(def *net-loop-state
+  (atom {:delay 0}))
 
 (def *net-loop
   (loopth/make-loop
     (tick-fn
       {:robot robot.state/net-robot
+       :*state *net-loop-state
+       :*speed (atom 1)
        :*client net.api/*client})))
 
 (comment
@@ -101,5 +110,8 @@
   
   (reset! (:*state active-robot)
     robot.state/initial-state)
+  
+  (swap! *net-loop-state
+    assoc :delay 0)
   
   )

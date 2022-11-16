@@ -6,7 +6,8 @@
   (atom {:waiting? false
          :req-time nil}))
 
-(def response-timeout 500)
+(def response-timeout 200)
+; (def response-timeout ##Inf)
 
 (defprotocol Client
   (-reset-client! [_])
@@ -22,8 +23,8 @@
 (defn get-req-status-atom [client]
   (locking req-status-atoms
     (or (.get req-status-atoms client)
-      (let [res (atom {:waiting? false
-                       :req-time nil
+      (let [res (atom {:req-time nil
+                       :status :connecting
                        :requests-dropped 0
                        :requests-completed 0
                        :id 0})]
@@ -32,7 +33,7 @@
 
 (defn reset-connection! [client]
   (swap! (get-req-status-atom client) assoc
-    :waiting? false
+    :status :connecting
     :req-time nil)
   (-reset-client! client))
 
@@ -50,29 +51,51 @@
 
 (defn sendrecv!
   [client input]
-  (let [*req-status (get-req-status-atom client)
-        {:keys [waiting? id]} @*req-status]
-    (when-not waiting?
-      (swap! *req-status assoc
-        :waiting? true :req-time (System/currentTimeMillis))
-      (-send-input! client
-        (assoc (conform-input input) :id id)))
-    (if-some [res (-get-response! client)]
-      (do
-        (swap! *req-status
-          (fn [s]
-            (-> s
-              (update :requests-completed inc)
-              (assoc
-                :waiting? false
-                :id (if (= 255 id) 0 (inc id))))))
-        res)
-      (when (< response-timeout
-              (- (System/currentTimeMillis) (:req-time @*req-status)))
-        (println "Response timed out!")
-        (swap! *req-status update :requests-dropped inc)
-        (reset-connection! client)
-        nil))))
+  (let
+    [*req-status (get-req-status-atom client)
+     {:keys [status id]} @*req-status
+     want-to-send? (not= :waiting status)
+     sent?
+     (when want-to-send?
+       (try
+         (-send-input! client
+           (assoc (conform-input input) :id id))
+         (swap! *req-status assoc
+           :status :waiting
+           :req-time (System/currentTimeMillis))
+         true
+         (catch IOException _
+           (swap! *req-status assoc
+             :status :failed
+             :req-time nil)
+           false)))
+     failed-to-send? (and want-to-send? (not sent?))
+     response (when-not failed-to-send?
+                (try (-get-response! client)
+                  (catch IOException _)))]
+    (when-not response
+      (cond
+        failed-to-send?
+        (do (println "net.api: Failed to send")
+          (reset-connection! client))
+        (let [{:keys [req-time]} @*req-status]
+          (when req-time
+            (< response-timeout
+              (- (System/currentTimeMillis) req-time))))
+        (do
+          (println "net.api: Response timed out!")
+          (swap! *req-status update :requests-dropped inc)
+          (reset-connection! client)
+          nil)))
+    (when response
+      (swap! *req-status
+        (fn [s]
+          (-> s
+            (update :requests-completed inc)
+            (assoc
+              :status :connected
+              :id (if (= 255 id) 0 (inc id))))))
+      response)))
 
 (defn sync! [client {:keys [*input *readings]}]
   (assert (.isVirtual (Thread/currentThread)))
@@ -87,4 +110,5 @@
           (prn e)
           (reset-connection! client)))
       (when-not (= :connecting client-status)
+        (println "net.api: Not connected; connecting")
         (reset-connection! client)))))

@@ -33,10 +33,12 @@
 (defn open-hub-window! []
   (app/doui-async
     (deliver *window
-      (ui/window
-        {:title "IDP Hub"
-         :bg-color 0xFFFFFFFF
-         :width 200
-         :height 100
-         :exit-on-close? true}
-        *app))))
+      (doto
+        (ui/window
+          {:title "IDP Hub"
+           :bg-color 0xFFFFFFFF
+           :width 200
+           :height 100
+           :exit-on-close? true}
+          *app)
+        .focus))))

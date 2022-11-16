@@ -119,7 +119,7 @@
           (ui/canvas
             {:on-paint
              (fn [ctx ^Canvas cnv ^IPoint size]
-               (let [dist (us-key (:robot-readings ctx))
+               (let [dist (or (us-key (:robot-readings ctx)) 0)
                      coeff (float (/ dist max-dist))
                      width (* (:width size) coeff)
                      nodata? (= 0 dist)]
@@ -248,72 +248,92 @@
                      (draw-seg 0 (* 3 seg-width))
                  (recur (unchecked-dec i) y2))))))}))))
 
+(def ui-latency-graph-overlay
+  (ui/halign 0
+    (ui/valign 1
+      (ui/padding 10 10
+        (ui/dynamic ctx
+          [client (:client ctx)]
+          (let
+            [ui-dropped
+             (ui/clickable
+               {:on-click
+                (fn [_]
+                  (swap! (client/get-req-status-atom client)
+                    assoc
+                    :requests-dropped 0
+                    :requests-completed 0))}
+               (ui/dynamic _
+                 [{ndropped :requests-dropped
+                   ncompleted :requests-completed}
+                  @(client/get-req-status-atom client)]
+                 (ui/label
+                   (let [nreqs (+ ndropped ncompleted)]
+                     (str ndropped #_#_"/" nreqs " ("
+                       (format "%.2f"
+                         (float
+                           (if (zero? nreqs)
+                             0.
+                             (* 100 (/ ndropped nreqs)))))
+                       "%) lost")))))
+             ui-latency
+             (ui/dynamic ctx
+               [{:keys [dt]} (peek (:readings-history
+                                     (:robot-state ctx)))]
+               (ui/label (str dt " ms")))]
+            (ui/column
+              ui-latency
+              (ui/gap 0 5)
+              ui-dropped)))))))
+
 (let [;bg-fill (paint/fill 0xFFf7f7f7)
       fill (paint/fill 0xFFced9dd)
       px-per-t 0.2
       seg-width 2]
   (def ui-latency-graph
     (ui/width 100
-      (ui/stack
-        (ui/canvas
-         {:on-paint
-          (fn [ctx ^Canvas cnv ^IPoint size]
-            ;(.drawRect cnv (Rect/makeWH (.toPoint size)) bg-fill)
-            (let
-              [history (:readings-history (:robot-state ctx))
-               scale (:scale ctx)
-               px-per-t (* scale px-per-t)
-               end (count history)
-               seg-width (* scale seg-width)
-               start (max 0 (int (- end (Math/ceil (/ (:width size) seg-width)))))
-               rect-height (:height size)]
-              (reduce
-                (fn [x {:keys [dt]}]
-                  (let [seg-height (* px-per-t dt)
-                        x2 (+ x seg-width)]
-                    (.drawRect cnv
-                      (Rect/makeLTRB
-                        x (- rect-height seg-height) x2 rect-height)
-                      fill)
-                    x2))
-                (max 0 (- (:width size) (* (- end start) seg-width)))
-                (subvec history start end))))})
-        (ui/halign 0
-          (ui/valign 1
-            (ui/padding 10 10
-              (ui/dynamic ctx
-                [client (:client ctx)]
+      (ui/with-bounds :latency-graph-bounds
+        (ui/dynamic ctx
+          [{:keys [latency-graph-bounds]} ctx
+           history (:readings-history (:robot-state ctx))
+           end (count history)
+           start (max 0 (int (- end (Math/ceil (/ (:width latency-graph-bounds) seg-width)))))
+           visible-history (subvec history start end)]
+          (ui/stack
+           (ui/canvas
+             {:on-paint
+              (fn [ctx ^Canvas cnv ^IPoint size]
+                ;(.drawRect cnv (Rect/makeWH (.toPoint size)) bg-fill)
                 (let
-                  [ui-dropped
-                   (ui/clickable
-                     {:on-click
-                      (fn [_]
-                        (swap! (client/get-req-status-atom client)
-                          assoc
-                          :requests-dropped 0
-                          :requests-completed 0))}
-                     (ui/dynamic _
-                       [{ndropped :requests-dropped
-                         ncompleted :requests-completed}
-                        @(client/get-req-status-atom client)]
-                       (ui/label
-                         (let [nreqs (+ ndropped ncompleted)]
-                           (str ndropped #_#_"/" nreqs " ("
-                             (format "%.2f"
-                               (float
-                                 (if (zero? nreqs)
-                                   0.
-                                   (* 100 (/ ndropped nreqs)))))
-                             "%) lost")))))
-                   ui-latency
-                   (ui/dynamic ctx
-                    [{:keys [dt]} (peek (:readings-history
-                                          (:robot-state ctx)))]
-                    (ui/label (str dt " ms")))]
-                  (ui/column
-                   ui-latency
-                   (ui/gap 0 5)
-                   ui-dropped))))))))))
+                  [scale (:scale ctx)
+                   px-per-t (* scale px-per-t)
+                   seg-width (* scale seg-width)
+                   rect-height (:height size)]
+                  (reduce
+                    (fn [x {:keys [dt]}]
+                      (let [seg-height (* px-per-t dt)
+                            x2 (+ x seg-width)]
+                        (.drawRect cnv
+                          (Rect/makeLTRB
+                            x (- rect-height seg-height) x2 rect-height)
+                          fill)
+                        x2))
+                    (max 0 (- (:width size) (* (- end start) seg-width)))
+                    visible-history)))})
+           (ui/dynamic ctx
+             [{:keys [latency-graph-bounds]} ctx
+              max-t (when (< 0 (count visible-history))
+                      (reduce max (mapv :dt visible-history)))
+              min-t (when (< 0 (count visible-history))
+                      (reduce min (mapv :dt visible-history)))]
+             (ui/label (str "(top " (int (/ (:height latency-graph-bounds) px-per-t))
+                         " ms"
+                         (when (< 0 (count visible-history))
+                           (str ", " min-t "–" max-t " ms"))
+                         ")")))
+           (ui/dynamic _
+             [ui-latency-graph-overlay ui-latency-graph-overlay]
+             ui-latency-graph-overlay)))))))
 
 (def *select-sim? (atom false))
 
@@ -321,8 +341,7 @@
   (ui/dynamic ctx
     [{looping? :client-looping?
       :keys [client-loop robot client]} ctx
-     robot-auto? (:auto? @(:*state robot) false)
-     client-status (client/-get-status client)]
+     robot-auto? (:auto? @(:*state robot) false)]
     (ui/row
       (let [*looping (atom looping?)]
         (add-watch *looping :checkbox
@@ -350,9 +369,73 @@
         (fn [] (client/reset-connection! client))
         (ui/label "Reset"))
       (ui/gap 5 0)
-      (ui/valign 0.5 (ui/label client-status))
+      (ui/dynamic _ [client-status (client/-get-status client)]
+        (ui/valign 0.5 (ui/label client-status)))
       (ui/gap 5 0)
       (ui/checkbox *select-sim? (ui/label "Sim")))))
+
+(def ui-mainpage
+  (ui/dynamic _ [ui-line-sensors ui-line-sensors
+                 ui-motors ui-motors
+                 ui-ultrasonics ui-ultrasonics
+                 ui-ultrasonics-graph ui-ultrasonics-graph
+                 ui-line-sensors-graph ui-line-sensors-graph
+                 ui-client-controls ui-client-controls
+                 ui-latency-graph ui-latency-graph]
+    (ui/row
+      ui-line-sensors-graph
+      [:stretch 1
+       (ui/column
+         (ui/padding 5
+           (ui/row
+             ui-line-sensors
+             (ui/gap 10 0)
+             ui-client-controls))
+         (ui/padding 5 ui-motors)
+         (ui/padding 5 ui-ultrasonics)
+         [:stretch 1
+          (ui/padding 5
+            (let [fmt-data #(zprint.core/zprint-str %
+                              {:map {:nl-separator? true
+                                     :justify? true
+                                     :justify {:max-variance 20}}
+                               :width 60})
+                  ;#(with-out-str (pprint/pprint %))
+                  ]
+              (ui/column
+                (ui/dynamic ctx
+                  [readings (:robot-readings ctx)]
+                  (multiline-label
+                    (fmt-data (dissoc readings
+                                :line-sensor-1
+                                :line-sensor-2
+                                :line-sensor-3
+                                :line-sensor-4
+                                :ultrasonic-1
+                                :ultrasonic-2
+                                :dt
+                                :time-received))))
+                (ui/gap 0 8)
+                (ui/dynamic ctx
+                  [state (:robot-state ctx)]
+                  (multiline-label
+                    (fmt-data (dissoc state :readings-history))))
+                (ui/gap 0 8)
+                (ui/dynamic ctx
+                  [input (:robot-input ctx)]
+                  (multiline-label
+                    (fmt-data (dissoc input :motor-1 :motor-2)))))))]
+         (ui/dynamic ctx [*robot-state (:*state (:robot ctx))]
+           (ui/clickable
+             {:on-click
+              (fn [_]
+                (swap! *robot-state update :readings-history empty))}
+             (ui/dynamic ctx
+               [npoints (count (:readings-history (:robot-state ctx)))]
+               (ui/label (str " Data points: " npoints)))))
+         (ui/gap 0 5)
+         (ui/height 100 ui-latency-graph))]
+      ui-ultrasonics-graph)))
 
 (def ui-root
   (ui/mouse-listener
@@ -363,14 +446,7 @@
          (fn [ctx _ _]
            (hui/schedule #(window/request-frame (:window ctx)) 20))})
       (ui/dynamic ctx
-        [ui-line-sensors ui-line-sensors
-         ui-motors ui-motors
-         ui-ultrasonics ui-ultrasonics
-         ui-ultrasonics-graph ui-ultrasonics-graph
-         ui-line-sensors-graph ui-line-sensors-graph
-         ui-client-controls ui-client-controls
-         ui-latency-graph ui-latency-graph
-         {:keys [scale]} ctx
+        [{:keys [scale]} ctx
          client-loop (if @*select-sim?
                        autopilot/*sim-loop
                        autopilot/*net-loop)
@@ -383,7 +459,8 @@
          client @(if @*select-sim?
                    sim.client/*client
                    net.api/*client)
-         looping? (loopth/loop-running? client-loop)]
+         looping? (loopth/loop-running? client-loop)
+         ui-mainpage ui-mainpage]
         (ui/with-context
           {:robot-readings readings
            :robot-state robot-state
@@ -396,59 +473,7 @@
            :font-ui (font/make-with-cap-height
                       common/code-typeface
                       (* scale 10))}
-          (ui/row
-            ui-line-sensors-graph
-            [:stretch 1
-             (ui/column
-               (ui/padding 5
-                 (ui/row
-                   ui-line-sensors
-                   (ui/gap 10 0)
-                   ui-client-controls))
-               (ui/padding 5 ui-motors)
-               (ui/padding 5 ui-ultrasonics)
-               [:stretch 1
-                (ui/padding 5
-                  (let [fmt-data #(zprint.core/zprint-str %
-                                    {:map {:nl-separator? true
-                                           :justify? true
-                                           :justify {:max-variance 20}}
-                                     :width 60})
-                        ;#(with-out-str (pprint/pprint %))
-                        ]
-                    (ui/column
-                      (ui/dynamic ctx
-                        [readings (:robot-readings ctx)]
-                        (multiline-label
-                          (fmt-data (dissoc readings
-                                      :line-sensor-1
-                                      :line-sensor-2
-                                      :line-sensor-3
-                                      :line-sensor-4
-                                      :ultrasonic-1
-                                      :ultrasonic-2
-                                      :dt
-                                      :time-received))))
-                      (ui/gap 0 8)
-                      (ui/dynamic ctx
-                        [state (:robot-state ctx)]
-                        (multiline-label
-                          (fmt-data (dissoc state :readings-history))))
-                      (ui/gap 0 8)
-                      (ui/dynamic ctx
-                        [input (:robot-input ctx)]
-                        (multiline-label
-                          (fmt-data (dissoc input :motor-1 :motor-2)))))))]
-               (ui/dynamic ctx [*robot-state (:*state (:robot ctx))]
-                 (ui/clickable
-                   {:on-click
-                    (fn [_]
-                      (swap! *robot-state update :readings-history empty))}
-                  (ui/dynamic ctx
-                    [npoints (count (:readings-history (:robot-state ctx)))]
-                    (ui/label (str " Data points: " npoints)))))
-               (ui/height 100 ui-latency-graph))]
-            ui-ultrasonics-graph))))))
+          ui-mainpage)))))
 
 (def *app (atom nil))
 (reset! *app

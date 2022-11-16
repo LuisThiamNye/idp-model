@@ -75,6 +75,10 @@
     :mode)
   
   (swap! (:*state robot1) assoc :mode :stop)
+  
+  (reset! (:*readings net-robot) initial-readings)
+  (reset! (:*state net-robot) initial-state)
+  (reset! (:*input net-robot) initial-input)
   )
 
 (defn get-line-sensors [readings]

@@ -340,19 +340,16 @@
       (tick-start-exit-turn *state readings)
       :basic-follow
       (tick-basic-follow *state readings)
-      :simple-follow
-      (tick-simple-follow *state readings)
-      :tight-follow
-      (tick-tight-follow *state readings)
-      :enter-tunnel
-      (tick-enter-tunnel *state readings)
-      :through-tunnel
-      (tick-stop)
+      ; :simple-follow
+      ; (tick-simple-follow *state readings)
+      ; :tight-follow
+      ; (tick-tight-follow *state readings)
+      ; :enter-tunnel
+      ; (tick-enter-tunnel *state readings)
+      ; :through-tunnel
+      ; (tick-stop)
       :tunnel-approach
       (tick-tunnel-approach *state readings)
       :stop
       (tick-stop)
       (println "INVALID MODE!! " mode))))
-
-
-
