@@ -2,10 +2,10 @@
   (:require
     [clojure.data :as data]
     [idp.net :as net]
-    [idp.common :refer [future-virtual]]
+    [idp.util.throttle :as throttle]
+    [idp.common :as common]
     [idp.robot.client :as client])
   (:import
-    (java.net Socket)
     (java.io IOException)))
 
 (defn frac->byte [n]
@@ -70,34 +70,41 @@
 (defn clamp-motor-speed [s]
   (min 255 (max 0 (abs s))))
 
+(defn make-request-bytes [input]
+  (let [{:keys [motor-1 motor-2 ultrasonic-active? id]} input]
+    [(make-insn-byte
+       {:set-motor? true
+        :motor1-rev? (neg? motor-1)
+        :motor2-rev? (neg? motor-2)
+        :get-ultrasonic-data? ultrasonic-active?})
+     (clamp-motor-speed motor-1)
+     (clamp-motor-speed motor-2)
+     0
+     (as-signed-byte id)
+     0]))
+
 (defn send-input! [conn input]
-  (let [{:keys [motor-1 motor-2 ultrasonic-active? id]} input
-        req-bytes
-        [(make-insn-byte
-           {:set-motor? true
-            :motor1-rev? (neg? motor-1)
-            :motor2-rev? (neg? motor-2)
-            :get-ultrasonic-data? ultrasonic-active?})
-         (clamp-motor-speed motor-1)
-         (clamp-motor-speed motor-2)
-         0
-         (as-signed-byte id)
-         0]]
+  (let [req-bytes (make-request-bytes input)]
     ; (prn req-bytes)
-    (net/send-bytes! conn req-bytes)))
+    (common/on-agent (:*socket conn)
+      net/send-bytes! req-bytes)))
 
 (defn get-response! [conn]
-  (some-> (net/read-all-bytes! conn)
+  (some-> (common/on-agent (:*socket conn)
+            net/read-all-bytes!)
     decode-response))
 
-(defrecord NetConnection [conn])
+(def reconnection-throttle-delay 10)
+(def *last-reconnection-time (atom 0))
 
+(defrecord NetConnection [conn])
 (defrecord NetClient [*conn])
 
-(def *client (atom (->NetClient net/*conn)))
+(def *client (atom (->NetClient net/*state)))
 
 (extend-type NetConnection client/Connection
-  (-get-status [{:keys [conn]}] (:status conn))
+  (-get-status [{:keys [conn]}]
+    (:status conn))
   (-get-response! [{:keys [conn]}]
     (when (nil? conn)
       (throw (IOException. "no connection")))
@@ -111,11 +118,23 @@
 (extend-type NetClient client/Client
   (-get-connection [{:keys [*conn]}]
     (->NetConnection @*conn))
-  (-reset-connection! [_self conn]
-    (let [p (promise)]
-      (future-virtual
-        (deliver p @(net/reset-conn! (:conn conn))))
-      p)))
+  (-reset-connection! [self conn]
+    (let [t (System/currentTimeMillis)
+          [last-reconnection-time _]
+          (swap-vals! *last-reconnection-time
+            (fn [lrt]
+              (if (< reconnection-throttle-delay (- t lrt))
+                t
+                lrt)))
+          time-remaining (- (+ last-reconnection-time
+                              reconnection-throttle-delay)
+                           t)]
+      (if (pos? time-remaining)
+        (do (Thread/sleep time-remaining)
+          (recur self conn))
+        (->NetConnection
+          @(net/reset-connection! (:conn conn))))))
+  )
 
 (comment
   (send *client (constantly (->NetClient (atom @net/*conn))))

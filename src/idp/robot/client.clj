@@ -6,7 +6,7 @@
   (atom {:waiting? false
          :req-time nil}))
 
-(def response-timeout 200)
+(def response-timeout 160)
 ; (def response-timeout ##Inf)
 
 ;; One client per socket connection
@@ -18,7 +18,8 @@
 
 (defprotocol Client
   (-get-connection [_])
-  (-reset-connection! [_ conn]))
+  (-reset-connection! [_ conn]
+    "Blocks and returns the new connection"))
 
 (def ^java.util.Map req-status-atoms
   "client → atom"
@@ -28,7 +29,7 @@
   (locking req-status-atoms
     (or (.get req-status-atoms client)
       (let [res (atom {:req-time nil
-                       :status :connecting
+                       :status :none
                        :requests-dropped 0
                        :requests-completed 0
                        :id 0})]
@@ -39,7 +40,7 @@
   (swap! (get-req-status-atom client) assoc
     :status :connecting
     :req-time nil)
-  @(-reset-connection! client conn))
+  (-reset-connection! client conn))
 
 (defn conform-input
   [{:keys [motor-1 motor-2] :as input}]
@@ -104,6 +105,7 @@
 (defn sync! [client {:keys [*input *readings]}]
   (assert (.isVirtual (Thread/currentThread)))
   (let [conn (-get-connection client)
+        req-status @(get-req-status-atom client)
         conn-status (-get-status conn)]
     (if (= :connected conn-status)
       (try
@@ -113,5 +115,6 @@
           (prn e)
           (reset-connection! client conn)))
       (when-not (= :connecting conn-status)
-        (println "net.api: Not connected; connecting")
+        (when-not (= :connecting (:status req-status))
+          (println "net.api: Not connected; connecting"))
         (reset-connection! client conn)))))

@@ -9,7 +9,7 @@
     [idp.state :as state]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
-    [idp.common :as common :refer [multiline-label future-virtual]]
+    [idp.common :as common :refer [multiline-label]]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.core :as hui]
     [io.github.humbleui.protocols :as protocols]
@@ -337,37 +337,51 @@
 
 (def *select-sim? (atom false))
 
+(defn action-checkbox
+  [{:keys [state on-toggle]} child]
+  (ui/checkbox
+    (reify
+      clojure.lang.IDeref
+      (deref [_]
+        state)
+      clojure.lang.IAtom
+      (swap [_ f]
+        (on-toggle state (f state))))
+    child))
+
 (def ui-client-controls
   (ui/dynamic ctx
-    [{looping? :client-looping?
-      :keys [client-loop robot client]} ctx
-     robot-auto? (:auto? @(:*state robot) false)]
+    [{:keys [client]} ctx]
     (ui/row
-      (let [*looping (atom looping?)]
-        (add-watch *looping :checkbox
-          (fn [_ _ looping? looping?']
-            (remove-watch *looping :checkbox)
-            (if looping?'
-              (loopth/start-loop! client-loop)
-              (loopth/stop-loop! client-loop))))
-        (ui/checkbox
-          *looping
+      (ui/dynamic ctx
+        [{:keys [client-loop]
+          looping? :client-looping?} ctx]
+        (action-checkbox
+          {:state looping?
+           :on-toggle (fn [_ checked?]
+                        (if checked?
+                          (loopth/start-loop! client-loop)
+                          (loopth/stop-loop! client-loop)))}
           (ui/label "Loop")))
       (ui/gap 10 0)
-      (let [*auto (atom robot-auto?)]
-        (add-watch *auto :checkbox
-          (fn [_ _ _ auto?]
-            (when-not auto?
-              (swap! (:*input robot) assoc
-                :motor-1 0 :motor-2 0))
-            (swap! (:*state robot) assoc :auto? auto?)))
-        (ui/checkbox
-          *auto
+      (ui/dynamic ctx
+        [{:keys [robot]} ctx
+         robot-auto? (:auto? @(:*state robot) false)]
+        (action-checkbox
+          {:state robot-auto?
+           :on-toggle
+           (fn [_ checked?]
+             (when-not checked?
+               (swap! (:*input robot) assoc
+                 :motor-1 0 :motor-2 0))
+             (swap! (:*state robot) assoc :auto? checked?))}
           (ui/label "Auto")))
       (ui/gap 5 0)
       (ui/button
         (fn []
-          (client/reset-connection! client (client/-get-connection client)))
+          (future
+            (client/reset-connection! client
+              (client/-get-connection client))))
         (ui/label "Reset"))
       (ui/gap 5 0)
       (ui/dynamic _ [conn-status (client/-get-status

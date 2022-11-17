@@ -7,47 +7,19 @@
     [idp.robot.sim.client :as sim.client]
     [idp.robot.state :as robot.state]))
 
-; (def *mode (atom :travel))
-
-#_(defn tick! [dt]
-  ; (robot.state/tick! dt)
-  ; (println "tick " dt (:status @net/*conn))
-  (Thread/sleep 50)
-  (api/tick! dt)
-  (when (= :connected (:status @net/*conn))
-    ; (prn (select-keys @api/*state
-    ;        [:ultrasonic-1 :ultrasonic-2]))
-    (println
-      (format "%4d %4d"
-        (:ultrasonic-1 @api/*state)
-        (:ultrasonic-2 @api/*state)))
-    ; (prn @api/*input)
-    #_
-    (let [{:keys [line-sensor-1
-                  line-sensor-2
-                  line-sensor-3
-                  line-sensor-4]} @api/*state]
-      (prn [line-sensor-1
-            line-sensor-2
-            line-sensor-3
-            line-sensor-4]))
-    (when (= :travel @*mode)
-      (travel/tick!)))
-  )
-
-(defn tick! [params dt]
-  (let [speed (max 0.001 @(:*speed params))
-        state @(:*state params)
+(defn tick! [*state _dt]
+  (let [state @*state
+        speed (max 0.001 @(:*speed state))
         del (or (:delay state)
               (* 2 (/ @robot.state/*sim-dt 1000.)))
         sleep-ms (min 1000 (max 0 (int (/ del speed))))]
     (when (< 0 sleep-ms)
       (Thread/sleep sleep-ms))
-    (let [robot (:robot params)
+    (let [robot (:robot state)
           *readings (:*readings robot)
           prev-readings @*readings
           t-presync (System/currentTimeMillis)]
-      (client/sync! @(:*client params) (:robot params))
+      (client/sync! @(:*client state) (:robot state))
       (let [*state (:*state robot)
             t-postsync (System/currentTimeMillis)]
         (when-not (identical? prev-readings @*readings)
@@ -69,26 +41,29 @@
 (defn tick-fn [params]
   #(tick! params %))
 
+(def *sim-loop-state
+  (atom {:robot robot.state/sim-robot
+         :delay 2
+         :*speed robot.state/*sim-speed
+         :*client sim.client/*client}))
+
 (def *sim-loop
   (loopth/make-loop
-    (tick-fn
-      {:robot robot.state/sim-robot
-       :*state (atom {:delay 2})
-       :*speed robot.state/*sim-speed
-       :*client sim.client/*client})))
+    (tick-fn *sim-loop-state)))
 
 (def *net-loop-state
-  (atom {:delay 0}))
+  (atom {:robot robot.state/net-robot
+         :delay 0
+         :*speed (atom 1)
+         :*client net.api/*client}))
 
 (def *net-loop
   (loopth/make-loop
-    (tick-fn
-      {:robot robot.state/net-robot
-       :*state *net-loop-state
-       :*speed (atom 1)
-       :*client net.api/*client})))
+    (tick-fn *net-loop-state)))
 
 (comment
+  (loopth/loop-running? *net-loop)
+  (def active-robot robot.state/net-robot)
   (def active-robot robot.state/sim-robot)
   
   (hash @sim.client/*client)
@@ -100,9 +75,9 @@
     )
   
   (swap! (:*state active-robot) merge
-    ; travel/state0-exit-start
+    travel/state0-exit-start
     ; travel/state0-basic-follow
-    travel/state0-tunnel-approach
+    ; travel/state0-tunnel-approach
     )
   
   (swap! (:*input active-robot) assoc

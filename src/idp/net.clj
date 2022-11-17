@@ -1,5 +1,5 @@
 (ns idp.net "
-Contains primitives for connecting to and transmitting data
+Primitives for connecting to and transmitting data
 to the Arduino."
   (:require
     [clojure.java.shell :as shell])
@@ -11,157 +11,137 @@ to the Arduino."
       Reader IOException InputStream OutputStream)))
 
 (def server-mac-address "84-cc-a8-2e-96-18")
-
-(defn get-server-ip
-  "Finds the IP address of the Arduino connected to the current
-Windows device via mobile hotspot."
-  []
-  (let [{:keys [out]} (shell/sh "arp" "-a")
-        [_ ip] (re-find (re-pattern (str #"\s(\S+)\s+" server-mac-address)) out)]
-    ip))
-
-(defn wait-for-ip! ^String [continue-fn]
-  (loop []
-    (or (get-server-ip)
-      (when (continue-fn)
-        (Thread/sleep 5)
-        (recur)))))
-
-(defn conn-err-handler [*conn e]
-  (println "Agent error")
-  (prn e))
-
-(def *conn
-  (agent
-    {:socket nil
-     :out nil
-     :in nil
-     :status :disabled}
-    :error-mode :continue
-    :error-handler conn-err-handler))
-
+(def ^Long socket-port #_7890 23)
 (def socket-connect-timeout 2000)
 
-(defn close-conn [conn]
-  (let [{:keys [^Socket socket ^OutputStream out ^InputStream in
-                ^Thread connecting-thread]} conn]
-    (try
-      (when socket
-        (.close socket))
-      (catch Exception e
-        (println "Net: failed to close something")
-        (prn e)))
-    (when connecting-thread
-      (.join connecting-thread 1000)
-      (when (.isAlive connecting-thread)
-        (println "Net: connecting thread timed out, interrupting...")
-        (.interrupt connecting-thread)))
-    (assoc conn
-      :status :disabled
-      :socket nil
-      :out nil
-      :in nil
-      :connecting-thread nil)))
+(let [ip-pattern (re-pattern (str #"\s(\S+)\s+" server-mac-address))]
+  (defn get-server-ip
+    "Finds the IP address of the Arduino connected to the current
+     Windows device via mobile hotspot."
+    []
+    (let [{:keys [out]} (shell/sh "arp" "-a")
+          [_ ip] (re-find ip-pattern out)]
+      ip)
+    #_"localhost"))
 
-(defn connect-conn []
-  (let [socket (Socket.)]
-    {:socket socket
-     :out nil :in nil
-     :status :connecting
-     :connecting-thread
-     (.start (Thread/ofVirtual)
-       (fn []
-         (let
-           [hostname (wait-for-ip!
-                       #(= (Thread/currentThread)
-                          (:connecting-thread @*conn)))
-            new-conn
-            (try
-              (println "Net: Connecting to " hostname)
-              (.connect socket
-                (InetSocketAddress. hostname 23)
-                socket-connect-timeout)
-              (let [out (.getOutputStream socket)
-                    in (.getInputStream socket)]
-                (.flush out)
-                {:socket socket
-                 :out out :in in
-                 :status :connected})
-              (catch SocketException e
-                (if (Thread/interrupted)
-                  (println "Net: Connection attempt interrupted")
-                  (println "Net: Connection attempt failed:"
-                    (.getMessage e)))
-                nil)
-              (catch SocketTimeoutException e
-                (println "Net: Socket timed out"))
-              (catch Exception e
-                (prn e)))]
-           (send *conn
-             (fn [{:as conn}]
-               (if (identical? (:socket conn) socket)
-                 (if new-conn
-                   (do
-                     (println "Net: Connection successful")
-                     new-conn)
-                   {:socket socket
-                    :out nil :in nil
-                    :status :failed})
-                 conn))))))}))
+(def disabled-state
+  {:status :disabled
+   :*socket nil
+   :port socket-port
+   :hostname nil})
+(def *state (atom disabled-state))
 
-(defn reset-conn! [conn0]
-  (let [res (promise)]
-    (send *conn
-      (fn [conn]
-        (if (= conn conn0)
-          (try
-            (println "Net: Resetting connection")
-            (let [conn' (do (close-conn conn)
-                          (connect-conn))]
-              (deliver res conn')
-              conn')
-            (catch Throwable e
-              (deliver res nil)
-              (throw e)))
-          (do
-            (deliver res conn)
-            conn))))
-    res))
+(defn close-socket-safely [^Socket socket]
+  (when socket
+    (try (.close socket)
+      (catch IOException e
+        (println "Net: Failed to close socket: "
+          (.getMessage e)))))
+  nil)
+
+(defn close-connection!
+  "Disables the client and closes any connected socket"
+  []
+  (let [[prev-state _]
+        (swap-vals! *state
+          (fn [_] disabled-state))]
+    (some-> (:*socket prev-state)
+      (send close-socket-safely))))
 
 (defn shutdown-hook []
-  (send-off *conn close-conn))
+  (close-connection!))
 
 (.addShutdownHook (Runtime/getRuntime)
   (Thread. #'shutdown-hook))
 
-(defn send-bytes! [conn data]
-  (let [{:keys [^OutputStream out]} conn]
-    (when (nil? out)
-      (throw (IOException. "Nil 'out'")))
+(defn socket-err-handler [_agt ^Throwable e]
+  (println "Socket agent error:" (.getMessage e)))
+
+(defn make-socket-agent [socket]
+  (agent socket
+    :error-mode :continue
+    :error-handler socket-err-handler))
+
+(defn connect-socket
+  "Attempts to connect the socket, returning true if successful"
+  [^String hostname ^Long port ^Socket socket]
+  (try
+    (println "Net: Connecting to " hostname ":" port)
+    (.connect socket
+      (InetSocketAddress. hostname port)
+      socket-connect-timeout)
+    (println "Net:    successful connection")
+    true
+    (catch SocketException e
+      (if (Thread/interrupted)
+        (println "Net: Connection attempt interrupted")
+        (println "Net: Connection attempt failed:"
+          (.getMessage e)))
+      nil)
+    (catch SocketTimeoutException _
+      (println "Net: Socket timed out"))
+    (catch Exception e
+      (println "Net: Unexpected connection error:" e))))
+
+(defn reset-connection!
+  "Closes any existing connection and starts a new one.
+  Returns a promise of any new successful connection state.
+  If provided state is stale, promise yields nil."
+  [prev-state]
+  (let [socket (Socket.)
+        *socket (make-socket-agent socket)
+        state (assoc prev-state
+                :status :connecting
+                :*socket *socket)
+        *ret (promise)]
+    (if (compare-and-set! *state prev-state state)
+      (let [*prev-socket (:*socket prev-state)
+            _ (when *prev-socket
+                (send *prev-socket close-socket-safely))
+            ; hostname (:hostname state)
+            hostname (get-server-ip)
+            return-new-state
+            (fn [state2]
+              (compare-and-set! *state state state2)
+              (deliver *ret state2))]
+        (if (nil? hostname)
+          (return-new-state
+            (assoc state :status :failed))
+         (let [connect!
+               (fn []
+                 (send-off *socket
+                   (fn [socket]
+                     (return-new-state
+                       (if (connect-socket
+                             hostname (:port state) socket)
+                         (assoc state :status :connected)
+                         (assoc state :status :failed)))
+                     socket)))]
+           ;; Only begin new connection after previous socket has been closed
+           (if *prev-socket
+             (send *prev-socket (fn [_] (connect!)))
+             (connect!)))))
+      ;; prev-state is stale; return nil
+      (deliver *ret nil))
+    *ret))
+
+(defn send-bytes!
+  "Writes and flushes a sequence of bytes on the output stream.
+  May throw IOException"
+  [^Socket socket data]
+  (let [out (.getOutputStream socket)]
     ; (println "send" data)
-    (.write out
-      (byte-array data))
+    (.write out (byte-array data))
     (.flush out)))
 
-(defn read-all-bytes! [conn]
-  (let [{:keys [^InputStream in]} conn]
-    (when in
-      (let [nbytes (.available in)]
-        (when (< 0 nbytes)
-          (let [ba (.readNBytes in nbytes)]
-            ; (println (vec ba))
-            ba))))))
-
-; (defn read-response! ^"[B" [conn]
-;   (let [{:keys [^InputStream in]} conn]
-;     (when in
-;       (let [res-ba (byte-array 8)
-;             nbytes (.read in res-ba)]
-;         (when (< 0 nbytes)
-;           res-ba)))))
-
-
-(comment
-  (reset-conn!)
-  
-  )
+(defn read-all-bytes!
+  "Nil if no available data.
+  Returns byte array of input.
+  May throw IOException."
+  [^Socket socket]
+  (let [in (.getInputStream socket)]
+    (let [nbytes (.available in)]
+      (when (< 0 nbytes)
+        (let [ba (.readNBytes in nbytes)]
+          ; (println (vec ba))
+          ba)))))

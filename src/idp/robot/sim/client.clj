@@ -8,6 +8,7 @@
 (defn clamp-motor-speed [s]
   (min 255 (max 0 (abs s))))
 
+(defrecord SimConnection [*state status])
 (defrecord SimClient [*state])
 
 (def initial-client-state
@@ -23,11 +24,11 @@
    ; :req-id 255
    :latest-readings robot.state/initial-readings})
 
-(def *client
-  (agent
-    (->SimClient
-      (atom (merge initial-client-state
-              initial-brain-state)))))
+(def *client (atom nil))
+(reset! *client
+  (->SimClient
+    (atom (merge initial-client-state
+            initial-brain-state))))
 
 (reset! (:*state @*client)
   (merge initial-client-state
@@ -44,8 +45,8 @@
 (defn rand-response-drop? []
   (rand-request-drop?))
 
-(extend-type SimClient client/Connection
-  (-get-status [self] (:status @(:*state self)))
+(extend-type SimConnection client/Connection
+  (-get-status [self] (:status self))
   
   (-get-response! [{:keys [*state]}]
     (let [q (:ready-res-queue @*state)]
@@ -59,17 +60,19 @@
         {:timestamp (System/currentTimeMillis)
          :latency (rand-send-latency)
          :message input})))
-  #_
-  (-reset-client! [self]
-    (swap! (:*state self) merge
+  
+  )
+
+(extend-type SimClient client/Client
+  (-get-connection [{:keys [*state]}]
+    (->SimConnection *state :connected))
+  
+  (-reset-connection! [{:keys [*state]} conn]
+    (swap! *state merge
       (assoc initial-client-state
         :status :connected))
-    #_(send *client
-      (fn [client]
-        (if (identical? client self)
-          (->SimClient (atom (assoc initial-client-state
-                               :status :connected)))
-          client)))))
+    (->SimConnection *state :connected))
+  )
 
 (defn motor-speed->coeff [spd]
   (let [spd (/ spd 255.)

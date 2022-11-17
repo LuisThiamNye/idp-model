@@ -1,5 +1,6 @@
 (ns idp.common
   (:require
+    [clojure.core.match :refer [match]]
     [clojure.string :as str]
     [io.github.humbleui.core :as core]
     [io.github.humbleui.font :as font]
@@ -12,11 +13,20 @@
       Typeface FontStyle FontWeight FontWidth FontSlant)
     (java.lang AutoCloseable)))
 
-(defmacro future-virtual [& body]
-  `(let [p# (promise)]
-     (.start (Thread/ofVirtual)
-       (fn [] (deliver p# (do ~@body))))
-     p#))
+(defn on-agent
+  "Returns the results of f applied to the agent.
+  f runs on the agent, but result is returned synchronously"
+  [agent f & args]
+  (let [res (promise)]
+    (send-off agent
+      #(do (deliver res
+             (try [:ok (apply f % args)]
+               (catch Throwable e
+                 [:error e])))
+         %))
+    (match @res
+      [:ok ret] ret
+      [:error e] (throw e))))
 
 (def code-typeface (Typeface/makeFromName "Input Mono"
                         (FontStyle.

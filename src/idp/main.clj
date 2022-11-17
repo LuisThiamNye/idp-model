@@ -5,7 +5,14 @@
     [nrepl.cmdline]
     [nrepl.server]
     [io.github.humbleui.ui :as ui]
-    [chic.debug.nrepl :as debug.nrepl]))
+    [chic.debug.nrepl :as debug.nrepl])
+  (:import
+    (java.util.concurrent Executors)))
+
+(set-agent-send-executor!
+  (Executors/newVirtualThreadPerTaskExecutor))
+(set-agent-send-off-executor!
+  (Executors/newVirtualThreadPerTaskExecutor))
 
 (def nrepl-server nil)
 (def nrepl-transport nil)
@@ -43,5 +50,7 @@
     (set! *warn-on-reflection* true))
   (println "Starting application")
   (start-app!)
-  (println "Initialised"))
+  (println "Initialised")
+  (let [o (Object.)]
+    (locking o (.wait o))))
 
