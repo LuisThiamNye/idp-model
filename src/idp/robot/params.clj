@@ -3,24 +3,26 @@
     [io.github.humbleui.paint :as paint]))
 
 (def dims
-  {:width 200
-   :length 200
-   :centre-y 170
-   :line-sensors-y 50
-   :line-sensors-spacing 19
-   :line-sensors-centre-spacing 19
-   
-   :wheel-diameter 105
-   :wheel-spacing 200
-   :max-rpm 18
-   
-   :ultrasonic-1
-   {:pos {:x -70 :y -70}
-    :angle 270}
-   :ultrasonic-2
-   {:pos {:x 70 :y -70}
-    :angle 90}
-   })
+  (let [axle-y 170
+        axle-to-ls 130]
+    {:width 200
+     :length 200
+     :centre-y axle-y
+     :line-sensors-y (- axle-y axle-to-ls)
+     :line-sensors-spacing 19
+     :line-sensors-centre-spacing 19
+     
+     :wheel-diameter 105
+     :wheel-spacing 205
+     :max-rpm 18
+     
+     :ultrasonic-1
+     {:pos {:x -70 :y -70}
+      :angle 270}
+     :ultrasonic-2
+     {:pos {:x 70 :y -70}
+      :angle 90}
+     }))
 
 (def theme
   {:border-stroke (paint/stroke 0xFFf0f090 3)

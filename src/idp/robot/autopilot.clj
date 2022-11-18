@@ -4,6 +4,7 @@
     [idp.robot.brain.travel :as travel]
     [idp.net.api :as net.api]
     [idp.robot.client :as client]
+    [idp.robot.brain.phase :as phase]
     [idp.robot.sim.client :as sim.client]
     [idp.robot.state :as robot.state]))
 
@@ -68,25 +69,47 @@
   
   (hash @sim.client/*client)
   
-  (swap! (:*state active-robot) assoc :mode
-    ; :simple-follow
-    ; :tight-follow
-    :enter-tunnel
+  (swap! (:*state active-robot) assoc :next-phase-map
+    {:exit-start :exit-start-turn
+     :exit-start-turn :start-to-centre-block
+     :start-to-centre-block :signal-block-density
+     :signal-block-density :tunnel-approach
+     :tunnel-approach :through-tunnel
+     :through-tunnel :up-to-box
+     :up-to-box :box-approach-turn
+     :box-approach-turn :box-approach-edge
+     :box-approach-edge :stop}
     )
   
-  (swap! (:*state active-robot) merge
-    travel/state0-exit-start
-    ; travel/state0-basic-follow
-    ; travel/state0-tunnel-approach
+  (swap! (:*state active-robot)
+    phase/initialise-phase-on-state
+    ; travel/exit-start
+    travel/start-to-centre-block
+    ; travel/tunnel-approach
     )
-  
   (swap! (:*input active-robot) assoc
     :ultrasonic-active? true)
+  
+  (swap! (:*input active-robot) assoc
+    :grabber-position :open
+    :grabber-position :closed
+    )
+  (swap! (:*input active-robot) update
+    :grabber-position
+    #(if (= :open %) :closed :open)
+    )
+  
+  
+  (swap! (:*input active-robot) assoc
+    :signal-block-density :low)
+  (swap! (:*input active-robot) assoc
+    :signal-block-density nil)
   
   (reset! (:*state active-robot)
     robot.state/initial-state)
   
   (swap! *net-loop-state
     assoc :delay 0)
+  
   
   )

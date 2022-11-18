@@ -77,9 +77,9 @@
 (defn motor-speed->coeff [spd]
   (let [spd (/ spd 255.)
         motor-offset 0.16]
-    (max 0 (min 1 (if (neg? spd)
-                    (min 0 (+ spd motor-offset))
-                    (max 0 (- spd motor-offset)))))))
+    (if (neg? spd)
+      (max -1 (min 0 (+ spd motor-offset)))
+      (min 1 (max 0 (- spd motor-offset))))))
 
 (defn process-input! [input]
   (let

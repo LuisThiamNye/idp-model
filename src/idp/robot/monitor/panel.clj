@@ -7,6 +7,7 @@
     [idp.robot.state :as robot.state]
     [idp.board.geo :as board.geo]
     [idp.state :as state]
+    [idp.robot.brain.phase :as phase]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
     [idp.common :as common :refer [multiline-label]]
@@ -21,7 +22,8 @@
     [idp.net.api :as net.api]
     [idp.robot.sim.client :as sim.client]
     [idp.robot.client :as client]
-    [idp.loopthread :as loopth])
+    [idp.loopthread :as loopth]
+    [idp.robot.brain.phase :as phase])
   (:import
     (io.github.humbleui.jwm Window)
     [io.github.humbleui.types IRect IPoint Rect Point]
@@ -286,11 +288,11 @@
               (ui/gap 0 5)
               ui-dropped)))))))
 
-(let [;bg-fill (paint/fill 0xFFf7f7f7)
-      fill (paint/fill 0xFFced9dd)
-      px-per-t 0.2
-      seg-width 2]
-  (def ui-latency-graph
+(def ui-latency-graph
+  (let [;bg-fill (paint/fill 0xFFf7f7f7)
+        fill (paint/fill 0xFFced9dd)
+        px-per-t 0.2
+        seg-width 2]
     (ui/width 100
       (ui/with-bounds :latency-graph-bounds
         (ui/dynamic ctx
@@ -349,6 +351,23 @@
         (on-toggle state (f state))))
     child))
 
+(def ui-block-status
+  (let [inactive-fill (paint/fill 0x4F000000)
+        active-fill (paint/fill 0xFF40F040)]
+    (ui/dynamic ctx
+      [{:keys [block-density
+               block-present?]} (:robot-readings ctx)]
+      (ui/rect (case block-present?
+                 true active-fill
+                 false inactive-fill
+                 (paint/fill 0xFFFFFFFF))
+        (ui/padding 3
+          (ui/center
+            (ui/label (case block-density
+                        :high "HI"
+                        :low "LO"
+                        "??"))))))))
+
 (def ui-client-controls
   (ui/dynamic ctx
     [{:keys [client]} ctx]
@@ -363,7 +382,7 @@
                           (loopth/start-loop! client-loop)
                           (loopth/stop-loop! client-loop)))}
           (ui/label "Loop")))
-      (ui/gap 10 0)
+      (ui/gap 5 0)
       (ui/dynamic ctx
         [{:keys [robot]} ctx
          robot-auto? (:auto? @(:*state robot) false)]
@@ -376,7 +395,7 @@
                  :motor-1 0 :motor-2 0))
              (swap! (:*state robot) assoc :auto? checked?))}
           (ui/label "Auto")))
-      (ui/gap 5 0)
+      (ui/gap 3 0)
       (ui/button
         (fn []
           (future
@@ -386,9 +405,83 @@
       (ui/gap 5 0)
       (ui/dynamic _ [conn-status (client/-get-status
                                    (client/-get-connection client))]
-        (ui/valign 0.5 (ui/label conn-status)))
+        (ui/valign 0.5 (ui/label (name conn-status))))
       (ui/gap 5 0)
       (ui/checkbox *select-sim? (ui/label "Sim")))))
+
+(def ui-phase-select
+  (let [*history (atom {:entries []
+                        :idx 0})
+        nav-history
+        (fn [n]
+          (let [{:keys [entries idx]}
+                (swap! *history
+                  (fn [{:keys [idx entries] :as h}]
+                    (let [idx' (+ idx n)]
+                      (if (<= 0 idx' (count entries))
+                        (assoc h :idx idx')
+                        h))))]
+            (nth entries idx nil)))
+        add-history
+        (fn [text]
+          (swap! *history
+            (fn [{:keys [entries idx]}]
+              (let [entries (conj (filterv (complement #{text})
+                                 (subvec entries 0 idx))
+                           text)]
+                {:entries entries
+                 :idx (count entries)}))))]
+    (ui/dynamic ctx [{{*robot-state :*state} :robot} ctx]
+      (ui/row
+        (ui/dynamic ctx
+          [phase-id (:phase-id @*robot-state)]
+          (let [*state (atom {:placeholder "phase-id"
+                              :text (some-> phase-id name)})
+                reset-text! (fn [text]
+                              (let [n (count text)]
+                                (swap! *state assoc
+                                  :text text
+                                  :from n :to n)))
+                submit!
+                (fn [text]
+                  (when (pos? (count text))
+                    (let [phase-id (keyword text)]
+                      (try
+                        (swap! *robot-state
+                          phase/init-phase-id-on-state phase-id)
+                        (add-history text)
+                        (catch Exception _
+                          (println "Failed to set phase-id to" phase-id))))))]
+            (add-watch *state :listener
+              (fn [_ _ _ {:keys [text]}]
+                ))
+            (ui/stack
+              (ui/text-field *state)
+              (ui/text-listener
+                {:on-input (fn [text] (= "\r" text))}
+                (ui/key-listener
+                 {:on-key-down
+                  (fn [{:keys [key]}]
+                    (if-some [text (case key
+                                     :up (nav-history -1)
+                                     :down (nav-history 1)
+                                     nil)]
+                      (do (reset-text! text)
+                        true)
+                      (case key
+                        :enter (do (submit! (:text @*state))
+                                 true)
+                        false)))}
+                 (ui/gap 100 0))))))
+        (ui/button
+          (fn [] (reset! *robot-state
+                   (phase/init-phase-id-on-state
+                     (merge robot.state/initial-state
+                       (select-keys @*robot-state
+                         [:readings-history :auto?
+                          :next-phase-map]))
+                     (:phase-id @*robot-state))))
+          (ui/label "Clean"))))))
 
 (def ui-mainpage
   (ui/dynamic _ [ui-line-sensors ui-line-sensors
@@ -397,7 +490,9 @@
                  ui-ultrasonics-graph ui-ultrasonics-graph
                  ui-line-sensors-graph ui-line-sensors-graph
                  ui-client-controls ui-client-controls
-                 ui-latency-graph ui-latency-graph]
+                 ui-latency-graph ui-latency-graph
+                 ui-block-status ui-block-status
+                 ui-phase-select ui-phase-select]
     (ui/row
       ui-line-sensors-graph
       [:stretch 1
@@ -405,53 +500,64 @@
          (ui/padding 5
            (ui/row
              ui-line-sensors
+             (ui/gap 8 0)
+             ui-block-status
              (ui/gap 10 0)
              ui-client-controls))
          (ui/padding 5 ui-motors)
-         (ui/padding 5 ui-ultrasonics)
+         ; (ui/padding 5 ui-ultrasonics)
          [:stretch 1
-          (ui/padding 5
-            (let [fmt-data #(zprint.core/zprint-str %
-                              {:map {:nl-separator? true
-                                     :justify? true
-                                     :justify {:max-variance 20}}
-                               :width 60})
-                  ;#(with-out-str (pprint/pprint %))
-                  ]
-              (ui/column
-                (ui/dynamic ctx
-                  [readings (:robot-readings ctx)]
-                  (multiline-label
-                    (fmt-data (dissoc readings
-                                :line-sensor-1
-                                :line-sensor-2
-                                :line-sensor-3
-                                :line-sensor-4
-                                :ultrasonic-1
-                                :ultrasonic-2
-                                :dt
-                                :time-received))))
-                (ui/gap 0 8)
-                (ui/dynamic ctx
-                  [state (:robot-state ctx)]
-                  (multiline-label
-                    (fmt-data (dissoc state :readings-history))))
-                (ui/gap 0 8)
-                (ui/dynamic ctx
-                  [input (:robot-input ctx)]
-                  (multiline-label
-                    (fmt-data (dissoc input :motor-1 :motor-2)))))))]
-         (ui/dynamic ctx [*robot-state (:*state (:robot ctx))]
-           (ui/clickable
-             {:on-click
-              (fn [_]
-                (swap! *robot-state update :readings-history empty))}
-             (ui/dynamic ctx
-               [npoints (count (:readings-history (:robot-state ctx)))]
-               (ui/label (str " Data points: " npoints)))))
+          (ui/vscrollbar
+            (ui/vscroll
+              (ui/padding 5
+                (let [fmt-data #(zprint.core/zprint-str %
+                                  {:map {:justify? true
+                                         :justify {:max-variance 20}}
+                                   :width 60})]
+                  (ui/column
+                    (ui/dynamic ctx
+                      [readings (:robot-readings ctx)]
+                      (multiline-label
+                        (fmt-data (dissoc readings
+                                    :line-sensor-1
+                                    :line-sensor-2
+                                    :line-sensor-3
+                                    :line-sensor-4
+                                    :ultrasonic-1
+                                    :ultrasonic-2
+                                    :block-density
+                                    :block-present?
+                                    :dt
+                                    :time-received))))
+                    (ui/gap 0 8)
+                    (ui/dynamic ctx
+                      [state (:robot-state ctx)]
+                      (multiline-label
+                        (fmt-data (dissoc state :readings-history))))
+                    (ui/gap 0 8)
+                    (ui/dynamic ctx
+                      [input (:robot-input ctx)]
+                      (multiline-label
+                        (fmt-data (dissoc input :motor-1 :motor-2)))))))))]
+         (ui/row
+           ui-phase-select
+           (ui/gap 5 0)
+           (ui/dynamic ctx [{:keys [robot]} ctx]
+             (ui/button (fn [] (robot.state/reset-robot! robot))
+               (ui/label "Clear state")))
+           (ui/gap 5 0)
+           (ui/dynamic ctx [*robot-state (:*state (:robot ctx))]
+             (ui/center
+               (ui/clickable
+                 {:on-click
+                  (fn [_]
+                    (swap! *robot-state update :readings-history empty))}
+                 (ui/dynamic ctx
+                   [npoints (count (:readings-history (:robot-state ctx)))]
+                   (ui/label (str "Responses: " npoints)))))))
          (ui/gap 0 5)
          (ui/height 100 ui-latency-graph))]
-      ui-ultrasonics-graph)))
+      #_ui-ultrasonics-graph)))
 
 (def ui-root
   (ui/mouse-listener
@@ -466,9 +572,9 @@
          client-loop (if @*select-sim?
                        autopilot/*sim-loop
                        autopilot/*net-loop)
-         robot (if @*select-sim?
-                 robot.state/sim-robot
-                 robot.state/net-robot)
+         net-robot robot.state/net-robot
+         sim-robot robot.state/sim-robot
+         robot (if @*select-sim? sim-robot net-robot)
          readings @(:*readings robot)
          robot-state @(:*state robot)
          robot-input @(:*input robot)

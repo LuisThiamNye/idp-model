@@ -1,11 +1,14 @@
 (ns idp.robot.brain.travel
   (:require
     [idp.net.api :as api]
+    [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
     [idp.robot.state :as robot.state]))
 
-(defn tick-stop []
-  {:motor-1 0 :motor-2 0})
+(defphase stop
+  :init {}
+  :tick
+  (fn [_ _] {:input {:motor-1 0 :motor-2 0}}))
 
 (defn tick-through-tunnel [*state readings])
 
@@ -31,168 +34,421 @@
   [line-triggers readings]
   (mapv + line-triggers (get-line-triggers readings)))
 
-(def state0-tunnel-approach
-  {:mode :tunnel-approach
-   :follow-intent [:straight]})
+(defn get-combined-line-readings
+  "Results of whether each line sensor saw white at least once
+  since last response.
+  Returns 4-tuple of :w or :b"
+  [readings]
+  (let [line-triggers (get-line-triggers readings)]
+    (-> (mapv #(if (or (= :white %1) (pos? %2)) :w :b)
+          (robot.state/get-line-sensors readings)
+          line-triggers)
+      rseq vec)))
 
-(defn tick-tunnel-approach [*state readings]
-  (let
-    [line-triggers (get-line-triggers readings)
-     ;; whether each line sensor saw white since last response
-     combined-readings
-     (-> (mapv #(if (or (= :white %1) (pos? %2)) :w :b)
-           (robot.state/get-line-sensors readings)
-           line-triggers)
-       rseq vec)
-     state @*state
-     prev-intent (:follow-intent state)
-     intent
-     (match combined-readings
-       [_ :w :w _] [:straight]
-       [:b :w :b :b] [:left 1]
-       [:w _ :b :b] [:left 2]
-       [:b :b :w :b] [:right 1]
-       [:b :b _ :w] [:right 2]
-       [:b :b :b :b]
-       (match prev-intent
-         [:left 1]  [:straight]
-         [:left 2]  [:left 3]
-         [:right 1] [:straight]
-         [:right 2] [:right 3]
+(defphase basic-follow
+  :init {:follow-intent [:straight]}
+  :tick
+  (fn [state readings]
+    (let
+      [combined-readings (get-combined-line-readings readings)
+       prev-intent (:follow-intent state)
+       intent
+       (match combined-readings
+         [_ :w :w _] [:straight]
+         [:b :w :b :b] [:left 1]
+         [:w :b :b :b] [:left 3]
+         [:b :b :w :b] [:right 1]
+         [:b :b :b :w] [:right 3]
+         [:b :b :b :b]
+         (match prev-intent
+           [:left 1]  [:left 2]
+           [:left 3]  [:left 4]
+           [:right 1] [:right 2]
+           [:right 3] [:right 4]
+           :else prev-intent)
          :else prev-intent)
-       :else prev-intent)
-     [forward-speed turn-speed]
-     (match intent
-       [:straight] [255 0]
-       [left-or-right level]
-       (let [[forward turn]
-             (case (int level)
-               1 [230 30]
-               2 [20 200]
-               3 [0 250])]
-         [forward
-          (cond-> turn (= :left left-or-right) -)]))]
-    (swap! *state assoc :follow-intent intent)
-    {:motor-1 (+ forward-speed turn-speed)
-     :motor-2 (- forward-speed turn-speed)}))
+       [forward-speed turn-speed]
+       (match intent
+         [:straight] [255 0]
+         [left-or-right level]
+         (let [[forward turn]
+               (case (int level)
+                 1 [230 30]
+                 2 [80 150]
+                 3 [20 500]
+                 4 [0 250])]
+           [forward
+            (cond-> turn (= :left left-or-right) -)]))]
+      {:state {:follow-intent intent}
+       :input {:motor-1 (+ forward-speed turn-speed)
+               :motor-2 (- forward-speed turn-speed)}})))
 
-(def state0-basic-follow
-  {:mode :basic-follow
-   :follow-intent [:straight]})
-
-(defn tick-basic-follow [*state readings]
-  (let
-    [line-triggers (get-line-triggers readings)
-     ;; whether each line sensor saw white since last response
-     combined-readings
-     (-> (mapv #(if (or (= :white %1) (pos? %2)) :w :b)
-           (robot.state/get-line-sensors readings)
-           line-triggers)
-       rseq vec)
-     state @*state
-     prev-intent (:follow-intent state)
-     intent
-     (match combined-readings
-       [_ :w :w _] [:straight]
-       [:b :w :b :b] [:left 1]
-       [:w :b :b :b] [:left 3]
-       [:b :b :w :b] [:right 1]
-       [:b :b :b :w] [:right 3]
-       [:b :b :b :b]
-       (match prev-intent
-         [:left 1]  [:left 2]
-         [:left 3]  [:left 4]
-         [:right 1] [:right 2]
-         [:right 3] [:right 4]
+(defphase biased-follow
+  :init {:follow-intent [:straight]
+         :bias :left}
+  :tick
+  (fn [state readings]
+    (let
+      [combined-readings (get-combined-line-readings readings)
+       mirror-intent #(update % 0
+                        {:straight :straight
+                         :left :right
+                         :right :left})
+       
+       ;; Conformed to left bias
+       swap? (= :right (:bias state))
+       prev-intent (cond-> (:follow-intent state [:straight])
+                     swap? mirror-intent)
+       intent
+       (match (cond-> combined-readings
+                swap? (-> rseq vec))
+         [ _ :w :w  _] [:straight]
+         [:b :w :b :b] [:left 2]
+         [:w  _ :b :b] [:left 3]
+         [:b :b :w :b] [:straight]
+         [ _ :b  _ :w] [:right 2]
+         [:b :b :b :b]
+         (match prev-intent
+           [:right 2] [:right 3]
+           [:right 1] [:right 3]
+           :else prev-intent)
          :else prev-intent)
-       :else prev-intent)
-     [forward-speed turn-speed]
-     (match intent
-       [:straight] [255 0]
-       [left-or-right level]
-       (let [[forward turn]
-             (case (int level)
-               1 [230 30]
-               2 [80 150]
-               3 [20 500]
-               4 [0 250])]
-         [forward
-          (cond-> turn (= :left left-or-right) -)]))]
-    (swap! *state assoc :follow-intent intent)
-    {:motor-1 (+ forward-speed turn-speed)
-     :motor-2 (- forward-speed turn-speed)}))
+       intent (cond-> intent swap? mirror-intent)
+       ;; Reverted to actual bias
+       
+       [forward-speed turn-speed]
+       (match intent
+         [:straight] [255 0]
+         [left-or-right level]
+         (let [[forward turn]
+               (case (int level)
+                 1 [230 30]
+                 2 [80 150]
+                 3 [0 250])]
+           [forward
+            (cond-> turn (= :left left-or-right) -)]))]
+      {:state {:follow-intent intent}
+       :input {:motor-1 (+ forward-speed turn-speed)
+               :motor-2 (- forward-speed turn-speed)}})))
 
-(def state0-start-exit-turn
-  {:mode :exit-start-turn
-   :line-triggers [0 0 0 0]})
+#_(defn tick-junction-turn-tracking
+  "Turn until the line sensor on the desired side has crossed
+  the target line"
+  [{:keys [turn-direction] :as state} readings]
+  (let [forward-speeds [100 60 0]
+        turn-speeds [0 250 250]
+        combined-line-readings (get-combined-line-readings readings)
+        ;; Think as though turning right
+        left? (= :left turn-direction)
+        prev-turn (:turn-level state 1)
+        turn-level
+        (match (cond-> combined-line-readings
+                 left? (-> rseq vec))
+          [_ _ _ :w] 1
+          [_ _ :w :b] nil
+          [:b :b :b :b]
+          (if (= 1 prev-turn)
+            2
+            prev-turn)
+          :else prev-turn)
+        done? (nil? turn-level)]
+    (if done?
+      {:state {:phase-id nil}}
+      (let [turn-speed (cond-> (nth turn-speeds turn-level) left? -)
+            forward-speed (nth forward-speeds turn-level)]
+        {:input {:motor-1 (+ forward-speed turn-speed)
+                 :motor-2 (- forward-speed turn-speed)}}))))
 
-(defn tick-start-exit-turn [*state readings]
-  (let [sturn 120
-        sturnf 170
-        {:keys [line-sensor-1 ;; far right
-                line-sensor-2 ;; centre right
-                ; line-sensor-3 ;; centre left
-                ; line-sensor-4 ;; far left
-                ]} readings
-        ; line-sensor-left line-sensor-4
-        ; line-sensor-centre line-sensor-3
-        line-sensor-right line-sensor-2
-        line-sensor-far-right line-sensor-1
-        {:keys [line-triggers]} @*state
-        line-triggers (update-line-triggers line-triggers readings)
-        _ (swap! *state assoc :line-triggers line-triggers)
-        start-following?
-        ;; start following when right two sensors have encountered the line
-        (every? pos? (subvec line-triggers 0 2))]
-    (if start-following?
-      (do
-        (swap! *state merge state0-basic-follow)
-        (tick-basic-follow *state readings))
-      (do
-        (when-not (or line-sensor-far-right line-sensor-right)
-          (swap! *state assoc :over-horiz? false))
-        {:motor-1 (+ sturnf sturn)
-         :motor-2 (- sturnf sturn)}))))
+(defphase box-approach-edge
+  "Go up to edge of box"
+  :init {:turn-direction :right}
+  :tick
+  (fn [state readings]
+    ((:tick-fn basic-follow) state readings)))
 
-(def state0-exit-start
-  {:mode :exit-start
-   :line-triggers [0 0 0 0]})
+(defphase box-approach-turn
+  "Turn off main loop onto box path.
+  Starts by getting ahead of the line, then spins on the spot
+  until line is between the sensors."
+  :init {:turn-direction :right
+         :spin? false}
+  :tick
+  (fn [state readings]
+    (let [forward-speeds [nil 200 150 100 50]
+          turn-speeds [nil 0 80 80 80]
+          spin-speed 200
+          combined-line-readings (get-combined-line-readings readings)
+          turn-level
+          (when-not (:spin? state)
+            (match combined-line-readings
+              [ _  _  _ :w] 1
+              [ _  _ :w :b] 2
+              [ _ :w :b :b] 3
+              [:w :b :b :b] 4
+              :else ;; blackout
+              nil))
+          spin? (nil? turn-level)
+          done? (when spin?
+                  (match combined-line-readings
+                    [_ :w _ _] true
+                    :else false))]
+      (if done?
+        {:state {:phase-id nil}}
+        {:state {:spin? spin?}
+         :input
+         (if spin?
+           {:motor-1 spin-speed
+            :motor-2 (- spin-speed)}
+           (let [forward-speed (nth forward-speeds turn-level)
+                 turn-speed (nth turn-speeds turn-level)]
+             {:motor-1 (+ forward-speed turn-speed)
+              :motor-2 (- forward-speed turn-speed)}))}))))
 
-(defn tick-exit-start [*state readings]
-  (let
-    [sforward 200
-     {:keys []} readings
-     {:keys [line-triggers] :as _state} @*state
-     line-triggers (update-line-triggers line-triggers readings)
-     _ (swap! *state assoc :line-triggers line-triggers)
-     ;; one line sensor may remain on the path and not be triggered twice
-     found-junction?
-     (let [non-ones (filterv #(not= % 1) line-triggers)]
-       (and (<= 3 (count non-ones))
-         (every? #(<= 2 %) non-ones)))
-     start-turning?
-     (and found-junction?
-       (every? #(= % :black) (robot.state/get-line-sensors readings)))]
-    (if start-turning?
-      (do
-        (swap! *state merge state0-start-exit-turn)
-        (tick-start-exit-turn *state
-          (assoc readings :line-switches [0 0 0 0])))
-      (let [speed sforward]
-        {:motor-1 speed
-         :motor-2 speed}))))
+(defphase up-to-box
+  "Goes from tunnel up to one of the three junctions of a line box.
+  Performs right-biased line following to ensure junction detection."
+  :init {:target-box 1
+         :nfinds 0
+         :bias :right}
+  :tick
+  (fn [state readings]
+    (let [combined-line-readings (get-combined-line-readings readings)
+          found-junction? (when (not= combined-line-readings
+                                  (:combined-line-readings state))
+                            (match combined-line-readings
+                              [ _ :w :w :w] true
+                              :else false))
+          nfinds (cond-> (:nfinds state) found-junction? inc)
+          done? (<= (:target-box state) nfinds)]
+      (if done?
+        {:state {:phase-id nil}}
+        (merge-with merge
+          {:state {:combined-line-readings combined-line-readings
+                   :nfinds nfinds}}
+          ((:tick-fn biased-follow) state readings))))))
+
+(defphase through-tunnel
+  "Waits until refinding the line.
+  Drives robot in straight line at constant speed."
+  :init {:nfinds 0}
+  :tick
+  (fn [state readings]
+    (let [min-finds 3 ;; require multiple finds for extra certainty
+          speed 255
+          combined-line-readings (get-combined-line-readings readings)
+          found-line? (match combined-line-readings
+                        [:w  _ :b :b] true
+                        [ _ :w :b :b] true
+                        [:b :w  _ :b] true
+                        [:b  _ :w :b] true
+                        [:b :b :w  _] true
+                        [:b :b  _ :w] true
+                        :else false)
+          nfinds (cond-> (:nfinds state) found-line? inc)
+          done? (<= min-finds nfinds)]
+      (if done?
+        {:state {:phase-id nil}}
+        {:state {:nfinds nfinds}
+         :input {:motor-1 speed
+                 :motor-2 speed}}))))
+
+(defphase tunnel-approach
+  "Does line following up to tunnel.
+  Tunnel starts after observing a certain number of line sensor
+  blackouts."
+  :init {:follow-intent [:straight]
+         :nblackouts 0}
+  :tick
+  (fn [state readings]
+    (let
+      [nblackouts-thres 10 ;; determines when phase is done
+       combined-readings (get-combined-line-readings readings)
+       prev-intent (:follow-intent state)
+       intent
+       (match combined-readings
+         [_ :w :w _] [:straight]
+         [:b :w :b :b] [:left 1]
+         [:w _ :b :b] [:left 2]
+         [:b :b :w :b] [:right 1]
+         [:b :b _ :w] [:right 2]
+         [:b :b :b :b]
+         (match prev-intent
+           [:left 1]  [:straight]
+           [:left 2]  [:left 3]
+           [:right 1] [:straight]
+           [:right 2] [:right 3]
+           :else prev-intent)
+         :else prev-intent)
+       [forward-speed turn-speed]
+       (match intent
+         [:straight] [255 0]
+         [left-or-right level]
+         (let [[forward turn]
+               (case (int level)
+                 1 [230 30]
+                 2 [20 200]
+                 3 [0 250])]
+           [forward
+            (cond-> turn (= :left left-or-right) -)]))
+       nblackouts (:nblackouts state)
+       done? (<= nblackouts-thres nblackouts)]
+      (if done?
+        {:state {:phase-id nil}}
+        {:state (cond-> {:follow-intent intent}
+                  (= [:b :b :b :b] combined-readings)
+                  (assoc :nblackouts (inc nblackouts)))
+         :input {:motor-1 (+ forward-speed turn-speed)
+                 :motor-2 (- forward-speed turn-speed)}}))))
+
+(defphase signal-block-density
+  :init {:density :high
+         :time-elapsed 0}
+  :tick
+  (fn [state readings]
+    (let [signal-duration 5000
+          time-elapsed (+ (:time-elapsed state) (:dt readings))
+          done? (<= signal-duration time-elapsed)]
+      (if done?
+        {:state {:phase-id nil}
+         :input {:signal-block-density nil}}
+        {:state {:time-elapsed time-elapsed}
+         :input {:signal-block-density (:density state)
+                 :motor-1 0 :motor-2 0}}))))
+
+; (defphase detect-block
+;   :init {}
+;   :tick
+;   (fn [state readings]
+;     (let []
+;       )))
+
+(defphase start-to-centre-block
+  "Does left-biased line following up to central collection point.
+  Conditions for stop:
+  - Find the first collection junction (left turn, three line sensors)
+  - Find the centre junction (three line sensors trigger on each side)"
+  :init {:follow-intent [:straight]
+         ; :line-triggers [0 0 0 0]
+         :rhs-lines-found 0
+         :lhs-lines-found 0
+         :bias :left}
+  :tick
+  (fn [state readings]
+    (let [combined-readings (get-combined-line-readings readings)
+          follow-cmd ((:tick-fn biased-follow) state readings)
+          cmd (merge-with merge {:state state} follow-cmd)
+          ;; Done when at the centre block cross,
+          ;; at least three white on the right
+          ; line-triggers (mapv #(if (pos? %) :w :b)
+          ;                 (get-line-triggers readings))
+          ; line-triggers (update-line-triggers line-triggers readings)
+          ; cmd (assoc-in [:state :line-triggers] line-triggers)
+          ; _ (prn line-triggers)
+          cmd
+          (if (= combined-readings
+                (:combined-line-readings state))
+            cmd
+            (match combined-readings
+              [:w :w :w :w]
+              (-> cmd
+                (update-in [:state :rhs-lines-found] inc)
+                (update-in [:state :lhs-lines-found] inc))
+              [:b :w :w :w]
+              (update-in cmd [:state :rhs-lines-found] inc)
+              [:w :w :w :b]
+              (update-in cmd [:state :lhs-lines-found] inc)
+              :else
+              cmd))
+          state (:state cmd)
+          done? (and (<= 1 (:rhs-lines-found state))
+                  (<= 2 (:lhs-lines-found state)))]
+      (if done?
+        {:state {:phase-id nil}}
+        (assoc-in cmd [:state :combined-line-readings]
+          combined-readings)))))
+
+(defphase exit-start-turn
+  :init {:line-triggers [0 0 0 0]}
+  :tick
+  (fn [state readings]
+    (let [sturn 120
+          sturnf 170
+          [_ _ ls-right ls-far-right]
+          (robot.state/get-white-line-sensors readings)
+          {:keys [line-triggers]} state
+          line-triggers (update-line-triggers line-triggers readings)
+          ;; done when right two sensors have encountered the line
+          done? (every? pos? (subvec line-triggers 0 2))]
+      (if done?
+        {:state {:phase-id nil}}
+        {:state (cond-> {:line-triggers line-triggers}
+                  (not (or ls-far-right ls-right))
+                  (assoc :over-horiz? false))
+         :input {:motor-1 (+ sturnf sturn)
+                 :motor-2 (- sturnf sturn)}}))))
+
+(defphase exit-start
+  :init {:line-triggers [0 0 0 0]}
+  :tick
+  (fn [state readings]
+    (let
+      [sforward 200
+       {:keys [line-triggers] :as _state} state
+       line-triggers (update-line-triggers line-triggers readings)
+       ;; one line sensor may remain on the path and not be triggered twice
+       found-junction?
+       (let [non-ones (filterv #(not= % 1) line-triggers)]
+         (and (<= 2 (count non-ones))
+           (every? #(<= 2 %) non-ones)))
+       done?
+       (and found-junction?
+         (every? #(= % :black) (robot.state/get-line-sensors readings)))]
+      (if done?
+        {:state {:phase-id nil}
+         :readings {:line-switches [0 0 0 0]}}
+        (let [speed sforward]
+          {:state {:line-triggers line-triggers}
+           :input {:motor-1 speed
+                   :motor-2 speed}})))))
+
+(defn tick [{:keys [state readings] :as prev-cmd}]
+  (let [current-phase-id (:phase-id state)
+        _ (when (nil? current-phase-id)
+            (throw (ex-info "Phase is nil"
+                     {:state (select-keys state
+                               [:parent-phases :phase-id])})))
+        current-phase (phase/lookup-phase current-phase-id)
+        tick-fn (:tick-fn current-phase)
+        cmd (tick-fn state readings)
+        cmd (merge-with merge prev-cmd cmd)
+        {state2 :state} cmd
+        next-phase-id (if (nil? (:phase-id state2))
+                        ((:next-phase-map state2)
+                         current-phase-id)
+                        current-phase-id)
+        next-phase (phase/lookup-phase next-phase-id)
+        parent-phases (:parent-phases state #{})]
+    (cond
+      (contains? parent-phases next-phase-id)
+      (throw (ex-info "Circular phase reference"
+               {:current-phase current-phase
+                :next-phase next-phase
+                :parent-phases parent-phases
+                :next-phase-map (:next-phase-map state2)}))
+      ;; if transitioning to a new phase, run it immediately
+      (not= current-phase-id next-phase-id)
+      (recur
+        (assoc cmd :state
+          (-> state2
+            (assoc :parent-phases (conj parent-phases current-phase-id))
+            (phase/initialise-phase-on-state next-phase))))
+      :else
+      (update cmd :state dissoc :parent-phases))))
 
 (defn tick! [*state readings]
-  (let [mode (:mode @*state)]
-    (case mode
-      :exit-start
-      (tick-exit-start *state readings)
-      :exit-start-turn
-      (tick-start-exit-turn *state readings)
-      :basic-follow
-      (tick-basic-follow *state readings)
-      :tunnel-approach
-      (tick-tunnel-approach *state readings)
-      :stop
-      (tick-stop)
-      (println "INVALID MODE!! " mode))))
+  (let [prev-state @*state
+        {:keys [input state]} (tick {:state prev-state
+                                     :readings readings})]
+    ; (compare-and-set! *state prev-state state)
+    (reset! *state state)
+    input))

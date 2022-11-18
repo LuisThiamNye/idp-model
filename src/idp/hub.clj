@@ -8,7 +8,9 @@
     [idp.state :as state]
     [idp.robot.sim.ui :as sim.ui]
     [idp.robot.monitor.panel :as monitor.panel]
-    [idp.common :as common]))
+    [idp.common :as common])
+  (:import
+    (io.github.humbleui.jwm Window)))
 
 (def ui-root
   (ui/dynamic _ [with-context common/with-context]
@@ -33,7 +35,7 @@
 (defn open-hub-window! []
   (app/doui-async
     (deliver *window
-      (doto
+      (doto ^Window
         (ui/window
           {:title "IDP Hub"
            :bg-color 0xFFFFFFFF
@@ -42,3 +44,6 @@
            :exit-on-close? true}
           *app)
         .focus))))
+
+(app/doui-async
+  (window/request-frame @*window))

@@ -23,18 +23,6 @@
     (+ n (unchecked-long (Math/pow 256 nbytes)))
     n))
 
-
-(defn make-insn-byte
-  [{:keys [set-motor? get-line-data? get-ultrasonic-data?
-           motor1-rev? motor2-rev?]}]
-  (bit-or
-    (as-bitn set-motor? 7)
-    (as-bitn set-motor? 6)
-    (as-bitn get-line-data? 5)
-    (as-bitn get-ultrasonic-data? 4)
-    (as-bitn motor1-rev? 2)
-    (as-bitn motor2-rev? 1)))
-
 (defn unsign-byte [n]
   (unsign n 1))
 
@@ -53,6 +41,10 @@
      :line-sensor-2 (bit-test linef-byte 6)
      :line-sensor-3 (bit-test linef-byte 5)
      :line-sensor-4 (bit-test linef-byte 4)
+     :block-present? (bit-test linef-byte 3)
+     :block-density (if (bit-test linef-byte 2)
+                      :high :low)
+     :grabber-moving? (bit-test linef-byte 1)
      :line-switches
      (let [b1 (aget res-bytes 5)
            b2 (aget res-bytes 6)]
@@ -70,16 +62,33 @@
 (defn clamp-motor-speed [s]
   (min 255 (max 0 (abs s))))
 
+(defn make-insn-byte
+  [{:keys [set-motor? get-line-data? get-ultrasonic-data?
+           motor1-rev? motor2-rev? close-grabber?]}]
+  (bit-or
+    (as-bitn set-motor? 7)
+    (as-bitn set-motor? 6)
+    (as-bitn get-line-data? 5)
+    (as-bitn get-ultrasonic-data? 4)
+    (as-bitn motor1-rev? 2)
+    (as-bitn motor2-rev? 1)
+    (as-bitn close-grabber? 0)))
+
 (defn make-request-bytes [input]
-  (let [{:keys [motor-1 motor-2 ultrasonic-active? id]} input]
+  (let [{:keys [motor-1 motor-2 ultrasonic-active? id
+                signal-block-density grabber-position]} input]
     [(make-insn-byte
        {:set-motor? true
+        :get-line-data? true
         :motor1-rev? (neg? motor-1)
         :motor2-rev? (neg? motor-2)
-        :get-ultrasonic-data? ultrasonic-active?})
+        :get-ultrasonic-data? ultrasonic-active?
+        :close-grabber? (= grabber-position :closed)})
      (clamp-motor-speed motor-1)
      (clamp-motor-speed motor-2)
-     0
+     (bit-or
+       (as-bitn (some? signal-block-density) 7)
+       (as-bitn (= :high signal-block-density) 6))
      (as-signed-byte id)
      0]))
 
@@ -130,7 +139,7 @@
                               reconnection-throttle-delay)
                            t)]
       (if (pos? time-remaining)
-        (do (Thread/sleep time-remaining)
+        (do (Thread/sleep (long time-remaining))
           (recur self conn))
         (->NetConnection
           @(net/reset-connection! (:conn conn))))))
@@ -145,5 +154,7 @@
      0 0
      0 0 0])
   (net/read-all-bytes! @net/*conn)
+  
+  (bit-test (make-insn-byte {:get-line-data? true}) 5)
   
   )

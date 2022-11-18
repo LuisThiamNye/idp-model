@@ -8,7 +8,7 @@
 
 (def *real (atom nil))
 (def *sim-speed (atom 1))
-(def *sim-dt (atom 5)) ;; in μs
+(def *sim-dt (atom 5000)) ;; in μs
 
 (defn reset-real! []
   (reset! *real
@@ -63,27 +63,36 @@
 (def sim-robot (make-initial-robot))
 (def net-robot (make-initial-robot))
 
+(defn reset-robot! [{:keys [*readings *state *input]}]
+  (reset! *readings initial-readings)
+  (reset! *state initial-state)
+  (reset! *input initial-input))
+
 (comment
   @(:*readings robot1)
   @(:*input robot1)
-  (count (:readings-history @(:*state sim-robot)))
   
-  (swap! (:*input robot1) assoc
-    :motor-1 0
-    :motor-2 0)
-  (swap! (:*input robot1) dissoc
-    :mode)
+  (reset-robot! net-robot)
   
-  (swap! (:*state robot1) assoc :mode :stop)
-  
-  (reset! (:*readings net-robot) initial-readings)
-  (reset! (:*state net-robot) initial-state)
-  (reset! (:*input net-robot) initial-input)
+  ;; see if a line sensor ever saw black or not
+  (distinct
+    (mapv :line-sensor-3
+      (:readings-history @(:*state net-robot))))
   )
 
-(defn get-line-sensors [readings]
+(defn get-line-sensors
+  "Returns readings of line sensors in the order they exist on the
+  robot (left to right, from robot's perspective).
+  Each reading is either :white or :black"
+  [readings]
   (mapv #(if % :white :black)
     [(:line-sensor-1 readings)
      (:line-sensor-2 readings)
      (:line-sensor-3 readings)
      (:line-sensor-4 readings)]))
+
+(defn get-white-line-sensors
+  "Returns a vector of boolean indicating whether each line sensor
+  is on the line. Order is the same as `get-line-sensors`"
+  [readings]
+  (mapv #(= :white %) (get-line-sensors readings)))
