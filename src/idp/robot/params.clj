@@ -20,8 +20,8 @@
      {:pos {:x -70 :y -70}
       :angle 270}
      :ultrasonic-2
-     {:pos {:x 70 :y -70}
-      :angle 90}
+     {:pos {:x 0 :y 30}
+      :angle 180}
      }))
 
 (def theme

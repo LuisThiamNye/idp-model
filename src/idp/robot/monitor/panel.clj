@@ -73,10 +73,10 @@
          {:line-sensor-triggered? mouse-on-line?}
          ui-line-sensor-dot)))))
 
-(let [forward-fill (paint/fill 0xFF89dddd)
-      backward-fill (paint/fill 0xFFddc489)
-      border-stroke (paint/stroke 0xFF505050 3)]
-  (def ui-motor
+(def ui-motor
+  (let [forward-fill (paint/fill 0xFF89dddd)
+        backward-fill (paint/fill 0xFFddc489)
+        border-stroke (paint/stroke 0xFF505050 3)]
     (ui/rect border-stroke
       (ui/padding 1
         (ui/stack
@@ -101,7 +101,7 @@
                   "%")))))))))
 
 (def ui-motors
-  (ui/height 100
+  (ui/height 50
     (ui/dynamic ctx [ui-motor ui-motor
                      motor-1 (:motor-1 (:robot-input ctx))
                      motor-2 (:motor-2 (:robot-input ctx))]

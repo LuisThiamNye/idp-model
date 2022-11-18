@@ -18,13 +18,20 @@
        (def ~sym
          ~@(when ?doc [?doc])
          {:id ~id
-          :initial-state ~init
+          :initial-state-fn (fn [_#] ~init)
           :tick-fn (fn ~sym ~@(rest tick))}))))
 
+(defn get-initial-state
+  ([phase] (get-initial-state phase nil))
+  ([phase prev-state]
+   (let [{:keys [initial-state-fn
+                 initial-state]} phase]
+     (or initial-state
+       (initial-state-fn prev-state)))))
+
 (defn initialise-state [phase state]
-  (merge {:next-phase-map {}}
-    state
-    (assoc (:initial-state phase)
+  (merge state
+    (assoc (get-initial-state phase)
       :phase-id (:id phase))))
 
 (defn initialise-phase-on-state [state phase]
@@ -32,3 +39,7 @@
 
 (defn init-phase-id-on-state [state phase-id]
   (initialise-state (lookup-phase phase-id) state))
+
+(defn phase-done? [{:keys [state]}]
+  (and (contains? state :phase-id)
+    (nil? (:phase-id state))))

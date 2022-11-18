@@ -42,11 +42,12 @@
 (defn tick-fn [params]
   #(tick! params %))
 
-(def *sim-loop-state
-  (atom {:robot robot.state/sim-robot
-         :delay 2
-         :*speed robot.state/*sim-speed
-         :*client sim.client/*client}))
+(def *sim-loop-state (atom nil))
+(reset! *sim-loop-state
+  {:robot robot.state/sim-robot
+   :delay 40
+   :*speed robot.state/*sim-speed
+   :*client sim.client/*client})
 
 (def *sim-loop
   (loopth/make-loop
@@ -77,8 +78,11 @@
      :tunnel-approach :through-tunnel
      :through-tunnel :up-to-box
      :up-to-box :box-approach-turn
-     :box-approach-turn :box-approach-edge
-     :box-approach-edge :stop}
+     :box-approach-turn :box-approach-turn-spin
+     :box-approach-turn-spin :box-approach-edge
+     :box-approach-edge :backup-from-box
+     :backup-from-box :junction-turn-spin
+     }
     )
   
   (swap! (:*state active-robot)
@@ -90,10 +94,6 @@
   (swap! (:*input active-robot) assoc
     :ultrasonic-active? true)
   
-  (swap! (:*input active-robot) assoc
-    :grabber-position :open
-    :grabber-position :closed
-    )
   (swap! (:*input active-robot) update
     :grabber-position
     #(if (= :open %) :closed :open)
