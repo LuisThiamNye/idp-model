@@ -91,7 +91,7 @@
         :motor1-rev? (neg? motor-1)
         :motor2-rev? (neg? motor-2)
         :get-ultrasonic-data? ultrasonic-active?
-        :close-grabber? (= grabber-position :closed)})
+        :close-grabber? (not= grabber-position :closed)})
      (clamp-motor-speed motor-1)
      (clamp-motor-speed motor-2)
      (bit-or

@@ -62,12 +62,12 @@
          line-box-length))
      shrink-outer-box
      (fn [rect] (rect-grow rect (- line-width)))
-     red-box-outer-rect
+     green-box-outer-rect
      (box-outer-rect line-left-box-path-x)
      start-box-outer-rect
      (box-outer-rect (+ line-left-box-path-x
                        line-left-boxes-path-spacing))
-     green-box-outer-rect
+     red-box-outer-rect
      (box-outer-rect (+ line-left-box-path-x
                        line-left-boxes-path-spacing
                        line-right-boxes-path-spacing))]

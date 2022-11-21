@@ -45,10 +45,13 @@
 (def initial-input
   {:motor-1 0
    :motor-2 0
+   :grabber-position :open
+   :signal-block-density nil
    :ultrasonic-active? false})
 
 (def initial-state
-  {:readings-history []})
+  {:readings-history []
+   :competition-start-time -1})
 
 (def initial-readings
   {:line-sensor-1 false
@@ -56,6 +59,7 @@
    :line-sensor-3 false
    :line-sensor-4 false
    :line-switches [0 0 0 0]
+   :grabber-moving? false
    :ultrasonic-1 0
    :ultrasonic-2 0})
 

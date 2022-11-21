@@ -40,11 +40,22 @@
           (ui/gap 0 3)
           (ui/button
             (fn []
+              (swap! (:*state robot) assoc :auto? false)
+              (swap! (:*input robot) assoc
+                :motor-1 0 :motor-2 0))
+            (ui/label "Stop"))
+          (ui/gap 0 5)
+          (ui/button
+            (fn [])
+            (ui/label "Detect"))
+          (ui/gap 0 5)
+          (ui/button
+            (fn []
               (loopth/stop-loop! client-loop)
               (swap! (:*state robot) assoc :auto? false)
               (swap! (:*input robot) assoc
                 :motor-1 0 :motor-2 0))
-            (ui/label "Stop")))))))
+            (ui/label "Disconnect")))))))
 
 (def *app (atom nil))
 (reset! *app
@@ -60,7 +71,7 @@
           {:title "IDP Hub"
            :bg-color 0xFFFFFFFF
            :width 260
-           :height 260
+           :height 350
            :exit-on-close? true}
           *app)
         .focus))))

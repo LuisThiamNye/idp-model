@@ -73,15 +73,14 @@
   (swap! (:*state active-robot) assoc :next-phase-map
     {:exit-start :exit-start-turn
      :exit-start-turn :start-to-centre-block
-     :start-to-centre-block :signal-block-density
-     :signal-block-density :tunnel-approach
+     :start-to-centre-block :detect-block
+     :detect-block :tunnel-approach
      :tunnel-approach :through-tunnel
      :through-tunnel :up-to-box
      :up-to-box :box-approach-turn
      :box-approach-turn :box-approach-turn-spin
      :box-approach-turn-spin :box-approach-edge
      :box-approach-edge :backup-from-box
-     :backup-from-box :junction-turn-spin
      }
     )
   
@@ -110,6 +109,14 @@
   
   (swap! *net-loop-state
     assoc :delay 0)
+  
+  (swap! (:*input robot.state/net-robot) assoc
+    :motor-1 2
+    :motor-2 2)
+  
+  (swap! (:*state active-robot) assoc
+    :competition-start-time (System/currentTimeMillis))
+  
   
   
   )

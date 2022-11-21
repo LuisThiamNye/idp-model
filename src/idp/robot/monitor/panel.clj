@@ -193,12 +193,12 @@
                0
                (rseq history))))}))))
 
-(let [bg-fill (paint/fill 0xFFe0e0e0)
-      active-fill (paint/fill 0xFF78bc78)
-      missed-active-fill (paint/fill 0xFFb1bc78)
-      missed-inactive-fill (paint/fill 0xFFcce0cc)
-      px-per-t 0.02]
-  (def ui-line-sensors-graph
+(def ui-line-sensors-graph
+  (let [bg-fill (paint/fill 0xFFe0e0e0)
+        active-fill (paint/fill 0xFF78bc78)
+        missed-active-fill (paint/fill 0xFFb1bc78)
+        missed-inactive-fill (paint/fill 0xFFcce0cc)
+        px-per-t 0.05]
     (ui/width 50
       (ui/canvas
         {:on-paint
@@ -442,8 +442,8 @@
           (swap! *history
             (fn [{:keys [entries idx]}]
               (let [entries (conj (filterv (complement #{text})
-                                 (subvec entries 0 idx))
-                           text)]
+                                    (subvec entries 0 idx))
+                              text)]
                 {:entries entries
                  :idx (count entries)}))))]
     (ui/dynamic ctx [{{*robot-state :*state} :robot} ctx]

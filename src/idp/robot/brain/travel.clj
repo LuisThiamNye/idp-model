@@ -91,7 +91,8 @@
   :tick
   (fn [state readings]
     (let
-      [combined-readings (get-combined-line-readings readings)
+      [straight-speed 230
+       combined-readings (get-combined-line-readings readings)
        mirror-intent #(update % 0
                         {:straight :straight
                          :left :right
@@ -121,27 +122,49 @@
        
        [forward-speed turn-speed]
        (match intent
-         [:straight] [255 0]
+         [:straight] [straight-speed 0]
          [left-or-right level]
          (let [[forward turn]
                (case (int level)
                  1 [230 30]
                  2 [80 150]
-                 3 [0 250])]
+                 3 [0 200])]
            [forward
             (cond-> turn (= :left left-or-right) -)]))]
       {:state {:follow-intent intent}
        :input (motor-input forward-speed turn-speed)})))
 
+(defphase straight-up-to-blackout
+  "Goes straight until line no longer seen.
+  Requires a certain number of 'blackout' readings to end."
+  :init {:blackout-duration 0}
+  :tick
+  (fn [state readings]
+    (let
+      [min-blackouts-duration 200 ;; determines when phase is done (ms)
+       blackout-speed 50 ;; after first blackout, go slower
+       combined-readings (get-combined-line-readings readings)
+       {:keys [blackout-duration]} state
+       max-fspeed (if (pos? blackout-duration) blackout-speed 200)
+       forward-speed max-fspeed
+       done? (<= min-blackouts-duration blackout-duration)]
+      (if done?
+        {:state {:phase-id nil}}
+        {:state {:blackout-duration
+                 (if (= [:b :b :b :b] combined-readings)
+                   (+ blackout-duration (:dt readings))
+                   0)}
+         :input (motor-input forward-speed 0)}))))
+
 (defphase follow-up-to-blackout
   "Does line following to tightly follow the line until it suddenly ends.
   Requires a certain number of 'blackout' readings to end."
   :init {:follow-intent [:straight]
-         :nblackouts 0}
+         :blackout-duration 0}
   :tick
   (fn [state readings]
     (let
-      [nblackouts-thres 2 ;; determines when phase is done
+      [min-blackouts-duration 400 ;; determines when phase is done (ms)
        blackout-speed 50 ;; after first blackout, go slower
        combined-readings (get-combined-line-readings readings)
        prev-intent (:follow-intent state)
@@ -160,8 +183,8 @@
            [:right 2] [:right 3]
            :else prev-intent)
          :else prev-intent)
-       nblackouts (:nblackouts state)
-       max-fspeed (if (pos? nblackouts) blackout-speed 255)
+       {:keys [blackout-duration]} state
+       max-fspeed (if (pos? blackout-duration) blackout-speed 255)
        [forward-speed turn-speed]
        (match intent
          [:straight] [max-fspeed 0]
@@ -173,13 +196,13 @@
                  3 [0 250])]
            [forward
             (cond-> turn (= :left left-or-right) -)]))
-       done? (<= nblackouts-thres nblackouts)]
+       done? (<= min-blackouts-duration blackout-duration)]
       (if done?
         {:state {:phase-id nil}}
         {:state {:follow-intent intent
-                 :nblackouts
+                 :blackout-duration
                  (if (= [:b :b :b :b] combined-readings)
-                   (inc nblackouts)
+                   (+ blackout-duration (:dt readings))
                    0)}
          :input (motor-input forward-speed turn-speed)}))))
 
@@ -218,18 +241,6 @@
         {:input {:motor-1 (+ forward-speed turn-speed)
                  :motor-2 (- forward-speed turn-speed)}}))))
 
-(defphase box-approach-edge
-  "Go up to edge of box"
-  :init (phase/initialise-phase-on-state
-          {:turn-direction :right}
-          follow-up-to-blackout)
-  :tick
-  (fn [state readings]
-    (let [#_
-          (match (get-combined-line-readings readings)
-            [])]
-      ((:tick-fn follow-up-to-blackout) state readings))))
-
 (defphase timed-forwards
   "Move straight forwards for fixed amount of time at a given speed"
   :init {:duration 0
@@ -251,7 +262,8 @@
          :turn-direction :left}
   :tick
   (fn [state readings]
-    (let [turn-speed 250
+    (let [forward-speed -30
+          turn-speed 180
           left? (= :left (:turn-direction state))
           turn-speed (cond-> turn-speed left? -)
           combined-line-readings
@@ -276,37 +288,84 @@
       (if done?
         {:state {:phase-id nil}}
         {:state {:location location}
-         :input (motor-input 0 turn-speed)}))))
+         :input (motor-input forward-speed turn-speed)}))))
+
+(defn reattempt-collection?
+  "After dropping off block, decides whether to try collecting another
+  block or to go back home"
+  [{:keys [competition-start-time]}]
+  (let [min-collect-duration (* 60 1000)
+        competition-duration (* 5 60 1000) ;; 5 mins
+        time-passed (- (System/currentTimeMillis) competition-start-time)
+        time-remaining (- competition-duration time-passed)]
+    (<= min-collect-duration time-remaining)))
 
 (defphase backup-from-box
   "Reverse from dropping off block at box"
   :init (merge (phase/get-initial-state timed-forwards)
-          {:turn-direction :left})
+          {:sub-status :retreating})
   :tick
   (fn [state readings]
-    ((:tick-fn timed-forwards)
-     (assoc state
-       :duration 1500
-       :speed -200)
-     readings)))
+    (case (:sub-status state)
+      :retreating
+      (let [cmd ((:tick-fn timed-forwards)
+                 (assoc state
+                   :duration 1500
+                   :speed -200)
+                 readings)]
+        (if (phase/phase-done? cmd)
+          (let [cmd (update cmd :state merge
+                      {:phase-id (:phase-id state)
+                       :sub-status :turning}
+                      (phase/get-initial-state junction-turn-spin))]
+            (if (reattempt-collection? state)
+              (update cmd :state
+                (fn [state2]
+                  (-> state2
+                    (assoc :turn-direction :left)
+                    (assoc :go-home? false))))
+              (update cmd :state
+                (fn [state2]
+                  (-> state2
+                    (assoc :turn-direction :right)
+                    (assoc :go-home? true))))))
+          cmd))
+      :turning
+      ((:tick-fn junction-turn-spin) state readings))
+    ))
+
+(defphase box-approach-edge
+  "Go up to edge of box"
+  :init (merge
+          (phase/get-initial-state straight-up-to-blackout)
+          {:turn-direction :right
+           :sub-status :up-to-line})
+  :tick
+  (fn [state readings]
+    (case (:sub-status state)
+      :up-to-line
+      (let [cmd (assoc-in ((:tick-fn straight-up-to-blackout) state readings)
+                  [:input :grabber-position] :open)]
+        (if (phase/phase-done? cmd)
+          (update cmd :state merge
+            (phase/get-initial-state timed-forwards)
+            {:phase-id (:phase-id state)
+             :sub-status :excess})
+          cmd))
+      :excess
+      ((:tick-fn timed-forwards)
+       (assoc state :duration 500)
+       readings))))
 
 (defphase box-approach-turn-spin
   "Assume aligned with path, so that we can spin 90° to point
   towards the box. Line sensors should be centred on the line."
-  :init {:found-line? false}
+  :init (merge
+          (phase/get-initial-state junction-turn-spin)
+          {:turn-direction :right})
   :tick
   (fn [state readings]
-    (let [turn-speed 250
-          combined-line-readings (get-combined-line-readings readings)
-          [done? found-line?]
-          (match combined-line-readings
-            [_ :w  _  _] [(and (:found-line? state) true) false]
-            [:b :b _ :w] [false true]
-            :else [false (:found-line? state)])]
-      (if done?
-        {:state {:phase-id nil}}
-        {:state {:found-line? found-line?}
-         :input (motor-input 0 turn-speed)}))))
+    ((:tick-fn junction-turn-spin) state readings)))
 
 (defphase box-approach-turn
   "Turns robot from main loop to be approximately aligned with
@@ -377,8 +436,8 @@
                               :else false))
           nfinds (cond-> (:nfinds state) found-junction? inc)
           target-box (case (:density state)
-                       :high 1 ;; red box
-                       :low 3 ;; green box
+                       :high 3 ;; red box
+                       :low 1 ;; green box
                        (throw (ex-info "No density!" {})))
           done? (<= target-box nfinds)]
       (if done?
@@ -452,9 +511,9 @@
 (defphase detect-block
   "Closes grabber, determines density, and signals the density.
   The grabber remains closed."
-  :init (phase/initialise-phase-on-state
+  :init (merge
           {:sub-status :closing}
-          tick-position-grabber)
+          (phase/get-initial-state tick-position-grabber))
   :tick
   (fn [state readings]
     (case (:sub-status state)
@@ -463,8 +522,9 @@
                (assoc state :grabber-position :closed)
                readings)]
         (if (phase/phase-done? r)
-          {:state {:sub-status :detect}}
-          r))
+          {:state {:sub-status :detect}
+           :input (motor-input 0)}
+          (update r :input merge (motor-input 0))))
       :detect
       (let [density (:block-density readings)]
         {:state (merge (phase/get-initial-state signal-block-density)
@@ -538,7 +598,8 @@
                  :motor-2 (- sturnf sturn)}}))))
 
 (defphase exit-start
-  :init {:line-triggers [0 0 0 0]}
+  :init {:line-triggers [0 0 0 0]
+         :competition-start-time (System/currentTimeMillis)}
   :tick
   (fn [state readings]
     (let
@@ -572,7 +633,7 @@
         cmd (tick-fn state readings)
         cmd (merge-with merge prev-cmd cmd)
         {state2 :state} cmd
-        next-phase-id (if (nil? (:phase-id state2))
+        next-phase-id (if (phase/phase-done? cmd)
                         ((:next-phase-map state2 {})
                          current-phase-id)
                         current-phase-id)
