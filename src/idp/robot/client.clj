@@ -1,28 +1,34 @@
 (ns idp.robot.client
+  "The main client behaviour for exchanging data with an abstract robot.
+  Contains logic for sending requests and listening for responses."
   (:import
     (java.io IOException)))
 
-#_(def *req-status
-  (atom {:waiting? false
-         :req-time nil}))
-
-(def response-timeout 160)
+(def response-timeout
+  "After this many milliseconds waiting for a reponse,
+  attempt to reset the connection."
+  160)
 ; (def response-timeout ##Inf)
 
 ;; One client per socket connection
 (defprotocol Connection
-  (-get-status [_])
+  (-get-status [_]
+    "Could be: :disabled, :connecting, :connected, :failed")
   (-send-input! [_ input])
   (-get-response! [_]
     "Response of robot including measurements. Nil if not yet available."))
 
 (defprotocol Client
-  (-get-connection [_])
+  (-get-connection [_]
+    "Returned object implements Connection protocol")
   (-reset-connection! [_ conn]
-    "Blocks and returns the new connection"))
+    "Blocks while ending the provided Connection.
+    Returns the new connection or nil if provided connection is has
+    already been replaced by a new one."))
 
 (def ^java.util.Map req-status-atoms
-  "client → atom"
+  "Additional state about a client.
+  Map of client → atom"
   (java.util.WeakHashMap.))
 
 (defn get-req-status-atom [client]
@@ -54,7 +60,28 @@
     (cond-> (< motor-2 -255)
       (assoc :motor-2 -255))))
 
+(defn attempt-send!
+  "Attempts to send input to the Arduino, updating
+  status as necessary.
+  Returns true if successful."
+  [conn *req-status id input]
+  (try
+    (-send-input! conn
+      (assoc (conform-input input) :id id))
+    (swap! *req-status assoc
+      :status :waiting
+      :req-time (System/currentTimeMillis))
+    true
+    (catch IOException _
+      (swap! *req-status assoc
+        :status :failed
+        :req-time nil)
+      false)))
+
 (defn sendrecv!
+  "Handles sending or receiving of data as appropriate.
+  Does not block.
+  If a response was obtained, this is returned. Else nil."
   [client conn input]
   (let
     [*req-status (get-req-status-atom client)
@@ -62,18 +89,7 @@
      want-to-send? (not= :waiting status)
      sent?
      (when want-to-send?
-       (try
-         (-send-input! conn
-           (assoc (conform-input input) :id id))
-         (swap! *req-status assoc
-           :status :waiting
-           :req-time (System/currentTimeMillis))
-         true
-         (catch IOException _
-           (swap! *req-status assoc
-             :status :failed
-             :req-time nil)
-           false)))
+       (attempt-send! conn *req-status id input))
      failed-to-send? (and want-to-send? (not sent?))
      response (when-not failed-to-send?
                 (try (-get-response! conn)
@@ -83,6 +99,8 @@
         failed-to-send?
         (do (println "net.api: Failed to send")
           (reset-connection! client conn))
+        
+        ;; If response timed out
         (let [{:keys [req-time]} @*req-status]
           (when req-time
             (< response-timeout
@@ -102,8 +120,11 @@
               :id (if (= 255 id) 0 (inc id))))))
       response)))
 
-(defn sync! [client {:keys [*input *readings]}]
-  (assert (.isVirtual (Thread/currentThread)))
+(defn sync!
+  "Main function that should get executed each clock cycle
+  to handle the transfer of data between the client and
+  the Arduino"
+  [client {:keys [*input *readings]}]
   (let [conn (-get-connection client)
         req-status @(get-req-status-atom client)
         conn-status (-get-status conn)]

@@ -2,16 +2,13 @@
   (:require
     [idp.robot.params :as params]
     [io.github.humbleui.ui :as ui]
-    [io.github.humbleui.core :as core]
-    [io.github.humbleui.protocols :as protocols]
     [io.github.humbleui.canvas :as canvas])
   (:import
     [io.github.humbleui.types IRect IPoint Rect]
-    [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint Path]
-    [java.lang AutoCloseable]))
+    [io.github.humbleui.skija Canvas Path]))
 
 (def ui-robot
-  (ui/dynamic ctx
+  (ui/dynamic _
     [dims params/dims
      theme params/theme]
     (ui/with-context
@@ -73,12 +70,13 @@
               (canvas/rotate cnv (- angle 270))
               (canvas/translate cnv (- xmid) (- ymid))
               (.drawRect cnv (Rect/makeWH width length) border-stroke)
+
               ;; line sensors
-              
               (draw-line-sensor 1)
               (draw-line-sensor 2)
               (draw-line-sensor 3)
               (draw-line-sensor 4)
+              
               ;; ultrasonic
               (draw-ultrasonic ultrasonic-1)
               (draw-ultrasonic ultrasonic-2)
@@ -86,7 +84,3 @@
               ;; centre
               (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
               )))}))))
-
-; (def ui-board-robot
-;   (ui/dynamic ctx [ui-robot ui-robot]
-;     ()))

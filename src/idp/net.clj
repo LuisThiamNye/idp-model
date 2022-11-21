@@ -1,6 +1,6 @@
-(ns idp.net "
-Primitives for connecting to and transmitting data
-to the Arduino."
+(ns idp.net
+  "Primitives for connecting to and transmitting data
+  to the Arduino."
   (:require
     [clojure.java.shell :as shell])
   (:import
@@ -10,8 +10,10 @@ to the Arduino."
       PrintWriter BufferedReader InputStreamReader
       Reader IOException InputStream OutputStream)))
 
-(def server-mac-address "84-cc-a8-2e-96-18")
-(def ^Long socket-port #_7890 23)
+(def server-mac-address
+  "MAC address of the Arduino"
+  "84-cc-a8-2e-96-18")
+(def ^Long socket-port 23)
 (def socket-connect-timeout 2000)
 
 (let [ip-pattern (re-pattern (str #"\s(\S+)\s+" server-mac-address))]
@@ -21,11 +23,10 @@ to the Arduino."
     []
     (let [{:keys [out]} (shell/sh "arp" "-a")
           [_ ip] (re-find ip-pattern out)]
-      ip)
-    #_"localhost"))
+      ip)))
 
 (def disabled-state
-  {:status :disabled
+  {:status :disabled ;; :disabled, :connecting, :connected, :failed
    :*socket nil
    :port socket-port
    :hostname nil})

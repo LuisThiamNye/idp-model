@@ -1,19 +1,25 @@
 (ns idp.hub
+  "The main program window UI.
+  Closing this window exits the program.
+  Used to access other windows (monitor, simulation)"
   (:require
     [io.github.humbleui.app :as app]
     [io.github.humbleui.core :as hui]
-    [io.github.humbleui.debug :as debug]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.window :as window]
-    [idp.state :as state]
     [idp.robot.sim.ui :as sim.ui]
     [idp.robot.monitor.panel :as monitor.panel]
-    [idp.common :as common])
+    [idp.common :as common]
+    [idp.robot.state :as robot.state]
+    [idp.loopthread :as loopth]
+    [idp.robot.autopilot :as autopilot])
   (:import
     (io.github.humbleui.jwm Window)))
 
 (def ui-root
-  (ui/dynamic _ [with-context common/with-context]
+  (ui/dynamic _ [with-context common/with-context
+                 robot robot.state/net-robot
+                 client-loop autopilot/*net-loop]
     (with-context
       (ui/mouse-listener
         {:on-move (fn [_] true)}
@@ -24,7 +30,21 @@
           (ui/button
             (fn []
               (sim.ui/open-sim-window!))
-           (ui/label "Simulation")))))))
+           (ui/label "Simulation"))
+          (ui/gap 0 10)
+          (ui/button
+            (fn []
+              (loopth/start-loop! client-loop)
+              (swap! (:*state robot) assoc :auto? true))
+            (ui/label "Start"))
+          (ui/gap 0 3)
+          (ui/button
+            (fn []
+              (loopth/stop-loop! client-loop)
+              (swap! (:*state robot) assoc :auto? false)
+              (swap! (:*input robot) assoc
+                :motor-1 0 :motor-2 0))
+            (ui/label "Stop")))))))
 
 (def *app (atom nil))
 (reset! *app
@@ -39,11 +59,8 @@
         (ui/window
           {:title "IDP Hub"
            :bg-color 0xFFFFFFFF
-           :width 200
-           :height 100
+           :width 260
+           :height 260
            :exit-on-close? true}
           *app)
         .focus))))
-
-(app/doui-async
-  (window/request-frame @*window))

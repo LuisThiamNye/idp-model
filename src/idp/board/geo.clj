@@ -1,4 +1,6 @@
 (ns idp.board.geo
+  "Helper functions to obtain data about the board geometry,
+  derived from parameters in `idp.board.params`"
   (:require
     [idp.board.params :as params]))
 
@@ -158,6 +160,7 @@
      (rect-xywh 0 tunnel-y
        tunnel-wall-thickness tunnel-length)}))
 
+;; (Memoised)
 (let [*prev-rev (atom nil)
       *prev-ret (atom nil)]
   (defn get-line-geo []

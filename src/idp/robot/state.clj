@@ -1,4 +1,5 @@
 (ns idp.robot.state
+  "Common state for the robots and simulation"
   (:require
     [idp.board.params :as board.params]
     [idp.robot.params :as robot.params]
@@ -6,9 +7,19 @@
     [idp.net.api :as net.api]
     [io.github.humbleui.debug :as debug]))
 
-(def *real (atom nil))
+(def *real
+  "State of the simulated physical world"
+  (atom nil))
+
 (def *sim-speed (atom 1))
-(def *sim-dt (atom 5000)) ;; in μs
+
+(def *sim-dt
+  "Desired time between each cycle of the simulation
+  measured in μs"
+  (atom 10000))
+
+(def *sim-block-present? (atom false))
+(def *sim-block-density (atom :low))
 
 (defn reset-real! []
   (reset! *real
@@ -18,7 +29,7 @@
                  :y +
                  (let [{:keys [centre-y length]} robot.params/dims]
                    (- centre-y (/ length 2))))
-     :angle 270
+     :angle 270 ;; measured clockwise from x+ direction
      
      :line-sensor-1 false
      :line-sensor-2 false
@@ -48,16 +59,12 @@
    :ultrasonic-1 0
    :ultrasonic-2 0})
 
-#_(defrecord Readings [line-sensor-1
-                     line-sensor-2
-                     line-sensor-3
-                     line-sensor-4
-                     ultrasonic-1
-                     ultrasonic-2])
-
 (defn make-initial-robot []
-  {:*readings (atom initial-readings)
+  {;; Data received from the robot
+   :*readings (atom initial-readings)
+   ;; Arbitrary state for the client, mainly for autopilot
    :*state (atom initial-state)
+   ;; Commands to be sent to the robot
    :*input (atom initial-input)})
 
 (def sim-robot (make-initial-robot))
@@ -73,6 +80,7 @@
   @(:*input robot1)
   
   (reset-robot! net-robot)
+  (reset-robot! sim-robot)
   
   ;; see if a line sensor ever saw black or not
   (distinct

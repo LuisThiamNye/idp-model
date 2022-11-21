@@ -1,5 +1,6 @@
 (ns idp.util.throttle
   (:require
+    [idp.util.result :as util.result]
     [taoensso.encore :as enc])
   (:import
     (java.util.concurrent ScheduledExecutorService Executors TimeUnit)))
@@ -17,28 +18,37 @@
   start of next call"
   [f timeout]
   (let [*promise-queue (atom nil)
-        schedule (fn [g]
-                   (.schedule timeout-scheduler ^Runnable g
-                     (long timeout) TimeUnit/MILLISECONDS))
+        schedule
+        (fn [g]
+          (let [*fut (promise)]
+            (deliver *fut
+              (.scheduleWithFixedDelay timeout-scheduler
+                ^Runnable (partial g *fut)
+                (long timeout) (long timeout) TimeUnit/MILLISECONDS))))
         process-queue
-        (fn process-queue []
-          (when (swap! *promise-queue
+        (fn process-queue [*fut]
+          (if (swap! *promise-queue
                   (fn [q] (if (empty? q) nil q)))
-            (let [result (f)
-                  _ (schedule process-queue)
+            (let [[v success?] (try [(f) true]
+                                 (catch Throwable e
+                                   [e false]))
                   [q _] (swap-vals! *promise-queue (constantly (enc/queue)))]
-              (run! #(deliver q result) q))))]
+              (run! (if success?
+                      #(util.result/deliver % v)
+                      #(util.result/deliver-ex % v))
+                q))
+            (.cancel @*fut)))]
     (fn []
-      (let [p (promise)
+      (let [p (util.result/promise)
             [prev _] (swap-vals! *promise-queue
                        (fn [q]
                          (if q
                            (conj q p)
                            (enc/queue))))]
         (when (nil? prev)
-          (let [result (f)]
-            (schedule process-queue)
-            (deliver p result)))
+          (println "scheduling")
+          (util.result/delivering-to p (f))
+          (schedule process-queue))
         @p))))
 
 (comment
@@ -50,10 +60,9 @@
         (let [t' (System/currentTimeMillis)]
           (prn (- t' t))
           (def t t')))
-      1))
+      500))
   
   (future (dotimes [_ 10]
             (test-fn)))
-  
   
   )

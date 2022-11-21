@@ -1,4 +1,6 @@
 (ns idp.net.api
+  "Implementation of protocol for communicating with the
+  robot over the network."
   (:require
     [clojure.data :as data]
     [idp.net :as net]
@@ -8,7 +10,9 @@
   (:import
     (java.io IOException)))
 
-(defn frac->byte [n]
+(defn frac->byte
+  "Converts 0–1 to a 0–255 int"
+  [n]
   (unchecked-int (Math/round (* 255. n))))
 
 (defn as-bitn
@@ -18,20 +22,24 @@
     (bit-shift-left 1 lshift)
     0))
 
-(defn unsign [n nbytes]
+(defn unsign
+  "Maps a signed integer range to an unsigned range
+  `nbytes` is the size of the integer type"
+  [n nbytes]
   (if (< n 0)
     (+ n (unchecked-long (Math/pow 256 nbytes)))
     n))
 
-(defn unsign-byte [n]
-  (unsign n 1))
+(defn unsign-byte [n] (unsign n 1))
 
-(defn as-signed-byte [n]
-  (byte (if (< 127 n)
-          (- n 256)
-          n)))
+(defn as-signed-byte
+  "Converts 0–255 to a signed Byte"
+  [n]
+  (byte (cond-> n (< 127 n) (- 256))))
 
-(defn decode-response [^"[B" res-bytes]
+(defn decode-response
+  "Converts the raw bytecode response to a friendly map"
+  [^"[B" res-bytes]
   (let [linef-byte (aget res-bytes 0)
         us-byte1 (aget res-bytes 1)
         us-byte2 (aget res-bytes 2)
@@ -103,30 +111,32 @@
             net/read-all-bytes!)
     decode-response))
 
-(def reconnection-throttle-delay 10)
-(def *last-reconnection-time (atom 0))
-
 (defrecord NetConnection [conn])
-(defrecord NetClient [*conn])
-
-(def *client (atom (->NetClient net/*state)))
 
 (extend-type NetConnection client/Connection
   (-get-status [{:keys [conn]}]
     (:status conn))
+  
   (-get-response! [{:keys [conn]}]
     (when (nil? conn)
       (throw (IOException. "no connection")))
     (get-response! conn))
+  
   (-send-input! [{:keys [conn]} input]
     (when (nil? conn)
       (throw (IOException. "no connection")))
     (send-input! conn input))
   )
 
+(def reconnection-throttle-delay 10)
+(def *last-reconnection-time (atom 0))
+
+(defrecord NetClient [*conn])
+
 (extend-type NetClient client/Client
   (-get-connection [{:keys [*conn]}]
     (->NetConnection @*conn))
+  
   (-reset-connection! [self conn]
     (let [t (System/currentTimeMillis)
           [last-reconnection-time _]
@@ -139,22 +149,11 @@
                               reconnection-throttle-delay)
                            t)]
       (if (pos? time-remaining)
+        ;; Throttle the rate at which reconnections can be attempted
         (do (Thread/sleep (long time-remaining))
           (recur self conn))
         (->NetConnection
           @(net/reset-connection! (:conn conn))))))
   )
 
-(comment
-  (send *client (constantly (->NetClient (atom @net/*conn))))
-  (net/send-bytes! @net/*conn
-    [(make-insn-byte {:set-motor? true
-                      :motor1-rev? false
-                      :motor2-rev? false})
-     0 0
-     0 0 0])
-  (net/read-all-bytes! @net/*conn)
-  
-  (bit-test (make-insn-byte {:get-line-data? true}) 5)
-  
-  )
+(def *client (atom (->NetClient net/*state)))

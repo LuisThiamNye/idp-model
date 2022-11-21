@@ -1,4 +1,5 @@
 (ns idp.sim
+  "Simulation loop"
   (:require
     [idp.robot.state :as state]
     [idp.loopthread :as loopth]

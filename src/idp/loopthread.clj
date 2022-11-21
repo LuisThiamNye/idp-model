@@ -1,4 +1,6 @@
-(ns idp.loopthread)
+(ns idp.loopthread
+  "Utility for creating and controlling a stoppable loop that
+  repeatedly executes a function.")
 
 (defn make-loop [tick-fn]
   (agent

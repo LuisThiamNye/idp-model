@@ -1,38 +1,12 @@
 (ns idp.robot.sim.client
+  "Client implementation for communicating with simulated robot.
+  Does not use sockets; network is simulated."
   (:require
     [taoensso.encore :as enc]
-    [idp.robot.client :as client]
-    [idp.robot.params :as robot.params]
-    [idp.robot.state :as robot.state]))
+    [idp.robot.sim.server :as server]
+    [idp.robot.client :as client]))
 
-(defn clamp-motor-speed [s]
-  (min 255 (max 0 (abs s))))
-
-(defrecord SimConnection [*state status])
-(defrecord SimClient [*state])
-
-(def initial-client-state
-  {:status :connected
-   :req-queue (enc/queue)
-   :res-queue (enc/queue)
-   :ready-res-queue (enc/queue)
-   :ready-req-queue (enc/queue)})
-
-(def initial-brain-state
-  {:last-insn-time -1
-   :paused? false
-   ; :req-id 255
-   :latest-readings robot.state/initial-readings})
-
-(def *client (atom nil))
-(reset! *client
-  (->SimClient
-    (atom (merge initial-client-state
-            initial-brain-state))))
-
-(reset! (:*state @*client)
-  (merge initial-client-state
-    initial-brain-state))
+;; Simulate network latency and packet loss
 
 (defn rand-send-latency []
   (+ 0 (rand-int 2)))
@@ -45,65 +19,11 @@
 (defn rand-response-drop? []
   (rand-request-drop?))
 
-(extend-type SimConnection client/Connection
-  (-get-status [self] (:status self))
-  
-  (-get-response! [{:keys [*state]}]
-    (let [q (:ready-res-queue @*state)]
-      (when (< 0 (count q))
-        (swap! *state update :ready-res-queue pop)
-        (peek q))))
-  
-  (-send-input! [{:keys [*state]} input]
-    (when-not (rand-request-drop?)
-      (swap! *state update :req-queue conj
-        {:timestamp (System/currentTimeMillis)
-         :latency (rand-send-latency)
-         :message input})))
-  
-  )
-
-(extend-type SimClient client/Client
-  (-get-connection [{:keys [*state]}]
-    (->SimConnection *state :connected))
-  
-  (-reset-connection! [{:keys [*state]} conn]
-    (swap! *state merge
-      (assoc initial-client-state
-        :status :connected))
-    (->SimConnection *state :connected))
-  )
-
-(defn motor-speed->coeff [spd]
-  (let [spd (/ spd 255.)
-        motor-offset 0.16]
-    (if (neg? spd)
-      (max -1 (min 0 (+ spd motor-offset)))
-      (min 1 (max 0 (- spd motor-offset))))))
-
-(defn process-input! [input]
-  (let
-    [{:keys [motor-1 motor-2]} input
-     {:keys [max-rpm wheel-diameter wheel-spacing]}
-     robot.params/dims
-     motor->v
-     (fn [spd]
-       (let
-         [rpm (* max-rpm
-                (motor-speed->coeff spd))
-                rps (/ rpm 60)
-                circumference (* Math/PI wheel-diameter)]
-         (* circumference rps)))
-     motor1-v (motor->v motor-1)
-     motor2-v (motor->v motor-2)]
-    (swap! robot.state/*real assoc
-      :velocity (/ (+ motor1-v motor2-v) 2)
-      :angular-velocity
-      (* (/ (- motor1-v motor2-v)
-           wheel-spacing)
-        (/ 180 Math/PI)))))
-
-(defn process-queues [*state fromqk toqk]
+(defn process-queues
+  "Propagates messages across the simulated network,
+  making them available after their flight time defined
+  by latency has been completed."
+  [*state fromqk toqk]
   (let [state @*state
         fromq (fromqk state)
         pkg (peek fromq)]
@@ -116,104 +36,63 @@
                          (update toqk conj msg)))
         msg))))
 
-(defn send-response!* [*state response]
-  (when-not (rand-response-drop?)
-    (swap! *state update :res-queue conj
-      {:timestamp (System/currentTimeMillis)
-       :latency (rand-response-latency)
-       :message response})))
+(defrecord SimConnection [*state status])
 
-(defn combine-prev-response [*state]
-  (swap! *state
-    (fn [{:keys [sent-readings latest-readings] :as state}]
-      (if (nil? sent-readings)
-        state
-        (-> state
-          (dissoc :sent-readings)
-          (assoc :latest-readings
-            (update latest-readings :line-switches
-              (fn [switches]
-                (mapv (fn [prev cur]
-                        (+ prev cur))
-                  (:line-switches sent-readings)
-                  switches)))))))))
+(extend-type SimConnection client/Connection
+  (-get-status [self] (:status self))
+  
+  (-get-response! [{:keys [*state]}]
+    (process-queues *state :res-queue :ready-res-queue)
+    (let [q (:ready-res-queue @*state)]
+      (when (< 0 (count q))
+        (swap! *state update :ready-res-queue pop)
+        (peek q))))
+  
+  (-send-input! [{:keys [*state]} input]
+    (when-not (rand-request-drop?)
+      (swap! *state update :req-queue conj
+        {:timestamp (System/currentTimeMillis)
+         :latency (rand-send-latency)
+         :message input})))
+  )
 
-(defn propagate-response [*state]
-  (swap! *state
-    (fn [state]
-      (-> state
-        (assoc :sent-readings (:latest-readings state))
-        (assoc-in [:latest-readings :line-switches] [0 0 0 0])))))
+(def initial-client-state
+  {:status :connected
+   :req-queue (enc/queue)
+   :res-queue (enc/queue)
+   :ready-res-queue (enc/queue)
+   :ready-req-queue (enc/queue)})
 
-(defn process-request! [*state req]
-  ;; important to use id rather than :retry? bit or else cannot
-  ;; distinguish between dropped messages on req/response
-  (swap! *state
-    (fn [state]
-      (assoc state
-        :retry? (= (:req-id state) (:id req))
-        :req-id (:id req))))
-  (process-input! req))
+(defrecord SimClient [*state])
 
-(defn send-response! [*state]
-  (when (:retry? @*state)
-    (combine-prev-response *state))
-  (let [response (:latest-readings @*state)]
-    (send-response!* *state response)
-    (propagate-response *state)))
+(extend-type SimClient client/Client
+  (-get-connection [{:keys [*state]}]
+    (->SimConnection *state :connected))
+  
+  (-reset-connection! [{:keys [*state]} _conn]
+    (swap! *state merge
+      (assoc initial-client-state
+        :status :connected))
+    (->SimConnection *state :connected))
+  )
 
-(defn update-line-switches [readings readings']
-  (update (merge readings readings')
-    :line-switches
-    (fn [switches]
-      (mapv (fn [n prev current]
-              (cond-> n (not= prev current) inc))
-        switches
-        [(:line-sensor-1 readings)
-         (:line-sensor-2 readings)
-         (:line-sensor-3 readings)
-         (:line-sensor-4 readings)]
-        [(:line-sensor-1 readings')
-         (:line-sensor-2 readings')
-         (:line-sensor-3 readings')
-         (:line-sensor-4 readings')]))))
+(defrecord ServerConnection [*state])
 
-(def rc-timeout 300)
+(extend-type ServerConnection server/ServerConnection
+  (-get-request [{:keys [*state]}]
+    (process-queues *state :req-queue :ready-req-queue))
+  
+  (-send-response [{:keys [*state]} response]
+   (when-not (rand-response-drop?)
+     (swap! *state update :res-queue conj
+       {:timestamp (System/currentTimeMillis)
+        :latency (rand-response-latency)
+        :message response})))
+  )
 
-(defn pause-activities! []
-  (process-input! {:motor-1 0 :motor-2 0}))
-
-(defn resume-activities! [])
-
-(defn tick! []
-  (let [{:keys [*state]} @*client
-        state @*state
-        paused? (:paused? state)
-        readings (:latest-readings state)
-        real-state @robot.state/*real
-        readings'
-        (select-keys real-state
-          [:line-sensor-1
-           :line-sensor-2
-           :line-sensor-3
-           :line-sensor-4])
-        readings'
-        (assoc readings' 
-          :ultrasonic-1 (:distance (:ultrasonic-1 real-state))
-          :ultrasonic-2 (:distance (:ultrasonic-2 real-state)))
-        readings' (update-line-switches readings readings')]
-    (swap! *state assoc :latest-readings readings')
-    (if-some [input (process-queues *state :req-queue :ready-req-queue)]
-      (do
-        (swap! *state assoc :last-insn-time (System/currentTimeMillis))
-        (when paused?
-          (swap! *state assoc :paused? false)
-          (resume-activities!))
-        (swap! *state update :ready-req-queue pop)
-        (process-request! *state input)
-        (send-response! *state))
-      (when (and (< rc-timeout (- (System/currentTimeMillis)
-                                 (:last-insn-time state -1)))
-              (not paused?))
-        (pause-activities!)))
-    (process-queues *state :res-queue :ready-res-queue)))
+(def *state (atom nil))
+(reset! *state initial-client-state)
+(def *client (atom nil))
+(reset! *client (->SimClient *state))
+(def server-connection (->ServerConnection *state))
+(swap! server/*state assoc :conn server-connection)

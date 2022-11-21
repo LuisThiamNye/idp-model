@@ -1,6 +1,6 @@
 (ns idp.robot.monitor.panel
+  "Visualisations of the robot sensor data and connection status."
   (:require
-    ; [clojure.pprint :as pprint]
     [clojure.string :as str]
     [zprint.core :as zprint]
     [idp.robot.params :as params]
@@ -10,26 +10,22 @@
     [idp.robot.brain.phase :as phase]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
-    [idp.common :as common :refer [multiline-label]]
+    [idp.common :as common :refer [multiline-label
+                                   action-checkbox]]
     [io.github.humbleui.ui :as ui]
-    [io.github.humbleui.core :as hui]
-    [io.github.humbleui.protocols :as protocols]
     [io.github.humbleui.canvas :as canvas]
     [io.github.humbleui.window :as window]
     [io.github.humbleui.font :as font]
-    [io.github.humbleui.font :as typeface]
     [idp.robot.autopilot :as autopilot]
     [idp.net.api :as net.api]
     [idp.robot.sim.client :as sim.client]
     [idp.robot.client :as client]
-    [idp.loopthread :as loopth]
-    [idp.robot.brain.phase :as phase])
+    [idp.loopthread :as loopth])
   (:import
     (io.github.humbleui.jwm Window)
     [io.github.humbleui.types IRect IPoint Rect Point]
-    [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint
-     FontStyle Font Typeface FontWidth FontWeight FontSlant]
-    [java.lang AutoCloseable]))
+    [io.github.humbleui.skija Canvas Paint
+     FontStyle Font Typeface FontWidth FontWeight FontSlant]))
 
 (def ui-line-sensor-dot
   (let [inactive-fill (paint/fill 0x4F000000)
@@ -73,85 +69,91 @@
          {:line-sensor-triggered? mouse-on-line?}
          ui-line-sensor-dot)))))
 
-(def ui-motor
-  (let [forward-fill (paint/fill 0xFF89dddd)
-        backward-fill (paint/fill 0xFFddc489)
-        border-stroke (paint/stroke 0xFF505050 3)]
-    (ui/rect border-stroke
-      (ui/padding 1
-        (ui/stack
-          (ui/canvas
-           {:on-paint
-            (fn [ctx ^Canvas cnv size]
-              (let [speed (:motor-speed ctx)
-                    coeff (float (/ speed 255))
-                    height (* (abs coeff) (:height size))]
-                (.drawRect cnv
-                  (Rect/makeXYWH
-                    0 (if (neg? coeff) 0 (- (:height size) height))
-                    (:width size) height)
-                  (if (neg? coeff)
-                    backward-fill
-                    forward-fill))))})
-          (ui/dynamic ctx [{:keys [motor-speed]} ctx]
-            (ui/center
-              (ui/label
-                (str (unchecked-int
-                       (Math/round (* 100 (float (/ motor-speed 255)))))
-                  "%")))))))))
-
-(def ui-motors
-  (ui/height 50
-    (ui/dynamic ctx [ui-motor ui-motor
-                     motor-1 (:motor-1 (:robot-input ctx))
-                     motor-2 (:motor-2 (:robot-input ctx))]
-      (ui/row
-        [:stretch 1 (ui/with-context {:motor-speed motor-1} ui-motor)]
-        (ui/gap 10 0)
-        [:stretch 1 (ui/with-context {:motor-speed motor-2} ui-motor)]))))
-
-(let [fill (paint/fill 0xFF89dddd)
-      nodata-fill (paint/fill 0xFFa5c6c6)
-      border-stroke (paint/stroke 0xFF505050 3)
-      max-dist 800]
-  (defn ui-ultrasonic [us-key]
-    (ui/rect border-stroke
-      (ui/padding 1
-        (ui/stack
+(def ui-rect-meter
+  (let [border-stroke (paint/stroke 0xFF505050 3)
+        fallback-fill (paint/fill 0xFF89dddd)
+        fallback-nodata-fill (paint/fill 0xFFa5c6c6)]
+    (ui/dynamic _ []
+      (ui/rect border-stroke
+        (ui/padding 1
           (ui/canvas
             {:on-paint
              (fn [ctx ^Canvas cnv ^IPoint size]
-               (let [dist (or (us-key (:robot-readings ctx)) 0)
-                     coeff (float (/ dist max-dist))
-                     width (* (:width size) coeff)
-                     nodata? (= 0 dist)]
-                 (if nodata?
-                   (.drawRect cnv (Rect/makeWH (.toPoint size)) nodata-fill)
-                   (.drawRect cnv
-                     (Rect/makeXYWH
-                       (if (= :ultrasonic-1 us-key)
-                         (- (:width size) width)
-                         0) 0
-                       width (:height size))
-                     fill))))})
-          (ui/dynamic ctx [dist (us-key (:robot-readings ctx))]
-            (ui/center
-              (ui/label (str (format "%.1f" (float dist)) " mm")))))))))
+               (let [coeff (:meter-value ctx)]
+                 (if (nil? coeff)
+                   (let [no-data-fill (:no-data-fill ctx fallback-nodata-fill)]
+                     (.drawRect cnv (Rect/makeWH (.toPoint size)) no-data-fill))
+                   (let [zero-location (:meter-zero ctx :left)
+                         signed? (= :h-mid zero-location)
+                         full-width (cond-> (:width size) signed? (/ 2))
+                         width (* full-width (float coeff))
+                         fill (:fill ctx fallback-fill)
+                         height (:height size)]
+                     (.drawRect cnv
+                       (if (neg? coeff)
+                         (Rect/makeLTRB
+                           (+ full-width width) 0 full-width height)
+                         (Rect/makeLTRB
+                           full-width 0 (+ full-width width) height))
+                       fill)))))}))))))
+
+(def ui-motor
+  (let [forward-fill (paint/fill 0xFFc3ddf7)
+        backward-fill (paint/fill 0xFFf7e7c0)
+        border-stroke (paint/stroke 0xFF505050 3)]
+    (ui/stack
+      (ui/dynamic ctx [ui-rect-meter ui-rect-meter
+                       speed (:motor-speed ctx)]
+        (ui/with-context
+          {:meter-value (float (/ speed 255))
+           :meter-zero :h-mid
+           :fill (if (neg? speed)
+                   backward-fill
+                   forward-fill)}
+          ui-rect-meter))
+      (ui/dynamic ctx [{:keys [motor-speed]} ctx]
+        (ui/center
+          (ui/label
+            (str (unchecked-int
+                   (Math/round (* 100 (float (/ motor-speed 255)))))
+              "%")))))))
+
+(def ui-motors
+  (ui/height 40
+    (ui/dynamic ctx [ui-motor ui-motor
+                     motor-1 (:motor-1 (:robot-input ctx))
+                     motor-2 (:motor-2 (:robot-input ctx))]
+      (ui/column
+        [:stretch 1 (ui/with-context {:motor-speed motor-1} ui-motor)]
+        [:stretch 1 (ui/with-context {:motor-speed motor-2} ui-motor)]))))
+
+(let [max-dist 800]
+  (defn ui-ultrasonic [us-key]
+    (ui/dynamic _ [ui-rect-meter ui-rect-meter]
+      (ui/stack
+        (ui/dynamic ctx [dist (or (us-key (:robot-readings ctx)) 0)]
+          (let [coeff (float (/ dist max-dist))]
+            (ui/with-context
+              {:meter-value coeff}
+              ui-rect-meter)))
+        (ui/dynamic ctx [dist (us-key (:robot-readings ctx))]
+          (ui/valign 0.5
+            (ui/label (str (format " %.1f" (float dist)) " mm"))))))))
 
 (def ui-ultrasonics
   (ui/dynamic _ [ui-ultrasonic ui-ultrasonic]
-    (ui/height 50
-      (ui/row
+    (ui/height 40
+      (ui/column
         [:stretch 1 (ui-ultrasonic :ultrasonic-1)]
-        (ui/gap 10 0)
+        ; (ui/gap 10 0)
         [:stretch 1 (ui-ultrasonic :ultrasonic-2)]))))
 
-(let [bg-fill (paint/fill 0xFFe0e0e0)
-      active-fill (paint/fill 0xFF89dddd)
-      nodata-fill (paint/fill 0xFFa5c6c6)
-      px-per-t 0.02
-      max-dist 700]
-  (def ui-ultrasonics-graph
+(def ui-ultrasonics-graph
+  (let [bg-fill (paint/fill 0xFFe0e0e0)
+        active-fill (paint/fill 0xFF89dddd)
+        nodata-fill (paint/fill 0xFFa5c6c6)
+        px-per-t 0.02
+        max-dist 700]
     (ui/width 100
       (ui/canvas
         {:on-paint
@@ -167,7 +169,7 @@
               rect-height (:height size)]
              (reduce
                (fn [y {:keys [ultrasonic-1 ultrasonic-2 dt]}]
-                 (let [seg-height (* px-per-t dt)
+                 (let [seg-height (min (* px-per-t dt) rect-height)
                        y2 (+ y seg-height)
                        draw-bar
                        (fn [ultrasonic left?]
@@ -219,7 +221,7 @@
                                line-sensor-4
                                line-switches
                                dt]} (nth history i)
-                       seg-height (* px-per-t dt)
+                       seg-height (min (* px-per-t dt) rect-height)
                        y2 (unchecked-int (+ y seg-height))
                        draw-seg
                        (fn [n x]
@@ -313,7 +315,7 @@
                    rect-height (:height size)]
                   (reduce
                     (fn [x {:keys [dt]}]
-                      (let [seg-height (* px-per-t dt)
+                      (let [seg-height (min (* px-per-t dt) rect-height)
                             x2 (+ x seg-width)]
                         (.drawRect cnv
                           (Rect/makeLTRB
@@ -339,34 +341,39 @@
 
 (def *select-sim? (atom false))
 
-(defn action-checkbox
-  [{:keys [state on-toggle]} child]
-  (ui/checkbox
-    (reify
-      clojure.lang.IDeref
-      (deref [_]
-        state)
-      clojure.lang.IAtom
-      (swap [_ f]
-        (on-toggle state (f state))))
-    child))
-
 (def ui-block-status
   (let [inactive-fill (paint/fill 0x4F000000)
-        active-fill (paint/fill 0xFF40F040)]
-    (ui/dynamic ctx
-      [{:keys [block-density
-               block-present?]} (:robot-readings ctx)]
-      (ui/rect (case block-present?
-                 true active-fill
-                 false inactive-fill
-                 (paint/fill 0xFFFFFFFF))
-        (ui/padding 3
-          (ui/center
-            (ui/label (case block-density
-                        :high "HI"
-                        :low "LO"
-                        "??"))))))))
+        active-fill (paint/fill 0xFF40F040)
+        green-fill (paint/fill 0xFFa6f7a0)
+        red-fill (paint/fill 0xFFf7a0a0)]
+    (ui/row
+      (ui/dynamic ctx
+        [{:keys [block-density
+                 block-present?]} (:robot-readings ctx)]
+        (ui/rect (case block-present?
+                   true active-fill
+                   false inactive-fill
+                   (paint/fill 0xFFFFFFFF))
+          (ui/padding 3
+            (ui/center
+              (ui/label (case block-density
+                          :high "HI"
+                          :low "LO"
+                          "??"))))))
+      (ui/gap 5 0)
+      (ui/dynamic ctx
+        [{:keys [signal-block-density]} (:robot-input ctx)]
+        (ui/rect
+          (case signal-block-density
+            :high red-fill
+            :low green-fill
+            nil inactive-fill)
+          (ui/padding 3
+            (ui/center
+              (ui/label (case signal-block-density
+                          :high "HI"
+                          :low "LO"
+                          "  ")))))))))
 
 (def ui-client-controls
   (ui/dynamic ctx
@@ -395,6 +402,14 @@
                  :motor-1 0 :motor-2 0))
              (swap! (:*state robot) assoc :auto? checked?))}
           (ui/label "Auto")))
+      (ui/gap 3 0)
+      (ui/dynamic ctx [{:keys [robot]} ctx]
+        (ui/button
+          (fn []
+            (swap! (:*state robot) assoc :auto? false)
+            (swap! (:*input robot) assoc
+              :motor-1 0 :motor-2 0))
+          (ui/label "Stop")))
       (ui/gap 3 0)
       (ui/button
         (fn []
@@ -504,8 +519,9 @@
              ui-block-status
              (ui/gap 10 0)
              ui-client-controls))
-         (ui/padding 5 ui-motors)
-         ; (ui/padding 5 ui-ultrasonics)
+         (ui/padding 5 0 ui-motors)
+         (ui/gap 0 5)
+         (ui/padding 5 0 ui-ultrasonics)
          [:stretch 1
           (ui/vscrollbar
             (ui/vscroll
@@ -564,9 +580,8 @@
     {:on-move (fn [_] true)}
     (ui/stack
       (ui/canvas
-        {:on-paint
-         (fn [ctx _ _]
-           (hui/schedule #(window/request-frame (:window ctx)) 20))})
+        ;; Keep the frames coming
+        {:on-event (fn [_ e] (= :frame (:event e)))})
       (ui/dynamic ctx
         [{:keys [scale]} ctx
          client-loop (if @*select-sim?
@@ -614,7 +629,7 @@
           (ui/window
             {:title "IDP Client Monitor"
              :bg-color 0xFFFFFFFF
-             :width 800
+             :width 1000
              :height 800
              :exit-on-close? false}
             *app)

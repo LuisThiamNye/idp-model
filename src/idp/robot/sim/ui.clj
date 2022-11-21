@@ -1,4 +1,5 @@
 (ns idp.robot.sim.ui
+  "Robot simulation window UI"
   (:require
     [clojure.string :as str]
     [zprint.core :as zprint]
@@ -35,6 +36,7 @@
       child)))
 
 (def ui-angle-slider
+  "Slider that reflects and controls the robot's direction"
   (ui/padding 10 3
     (let [*state (atom nil)]
       (add-watch *state :slider
@@ -65,19 +67,29 @@
         (ui/gap 0 2)
         (ui/center
           (ui/row
+            (ui/gap 5 0)
             (ui/button
               (fn [] (robot.state/reset-real!))
               (ui/label "Move to start"))
-            (ui/gap 10 0)
-            (ui/dynamic _ [looping? (sim/sim-running?)]
-              (let [*looping (atom looping?)]
-                (add-watch *looping :checkbox
-                  (fn [_ _ _ looping?]
-                    (if looping?
-                      (sim/start!)
-                      (sim/stop!))))
-                (ui/checkbox *looping
-                  (ui/label "Sim loop"))))))
+            (ui/gap 5 0)
+            (ui/checkbox robot.state/*sim-block-present?
+              (ui/label "Block present?"))
+            (ui/gap 5 0)
+            (ui/button
+              (fn [] (swap! robot.state/*sim-block-density
+                       (fn [d] (case d :high :low :low :high))))
+              (ui/dynamic _ [density @robot.state/*sim-block-density]
+                (ui/label (str "Density: " (name density)))))))
+        (ui/gap 0 5)
+        (ui/center
+          (ui/dynamic _ [looping? (sim/sim-running?)]
+            (common/action-checkbox
+              {:state looping?
+               :on-toggle (fn [_ checked?]
+                            (if checked?
+                              (sim/start!)
+                              (sim/stop!)))}
+              (ui/label "Sim loop"))))
         (ui/row
           (ui/valign 0.5 (ui/label "Speed"))
           (ui/gap 5 0)
@@ -154,12 +166,10 @@
                 ui-background
                 ui-robot
                 (ui/canvas
-                  {:on-paint
-                   (fn [ctx _ _]
-                     (hui/schedule
-                       #(do
-                          (window/request-frame (:window ctx)))
-                       0))})))))))))
+                  {:on-event
+                   (fn [_ e]
+                     ;; Keep the frames coming
+                     (= :frame (:event e)))})))))))))
 
 (def ui-root
   (ui/dynamic ctx

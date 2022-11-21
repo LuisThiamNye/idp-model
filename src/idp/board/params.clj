@@ -4,8 +4,9 @@
   (:import
     (io.github.humbleui.types Point)))
 
-;; spacing is independent of thickness (not the gap)
+;; "spacing" is independent of "thickness" (not the gap)
 (def dims
+  "Measurements of the table"
   {:board-width (/ (+ 2400 2410) 2)
    :board-height 2405
    
@@ -40,6 +41,7 @@
    })
 
 (def theme
+  "Theme used to display the table"
   {:line-fill (paint/fill 0xFFffffff)
    :line-box-green-fill (paint/fill 0xFFd6f9dd)
    :line-box-red-fill (paint/fill 0xFFf9d6d6)
@@ -52,7 +54,9 @@
    
    :barrier-bg (paint/fill 0xFF505050)})
 
-(defn get-start-box-centre []
+(defn get-start-box-centre
+  "Gets the point of the centre of the start box"
+  []
   (let [{:keys [line-box-length line-bottom-margin board-height
                 line-left-box-path-x line-left-boxes-path-spacing line-width
                 line-box-path-length]} dims]

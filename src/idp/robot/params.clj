@@ -3,6 +3,7 @@
     [io.github.humbleui.paint :as paint]))
 
 (def dims
+  "Important dimensions of the robot"
   (let [axle-y 170
         axle-to-ls 130]
     {:width 200
@@ -25,6 +26,7 @@
      }))
 
 (def theme
+  "Theme used to display the simulated robot"
   {:border-stroke (paint/stroke 0xFFf0f090 3)
    
    :line-sensor-fill (paint/fill 0xFFff6f20)
@@ -32,7 +34,11 @@
    
    :ultrasonic-fill (paint/fill 0xFF4097d1)})
 
-(defn get-line-sensor-pos [n]
+(defn get-line-sensor-pos
+  "Returns the position of a line sensor relative
+  to the centre of rotation of the robot,
+  where the robot is at a 270° angle (pointed upwards)."
+  [n]
   (let [{:keys [line-sensors-spacing centre-y
                 line-sensors-centre-spacing
                 line-sensors-y]} dims

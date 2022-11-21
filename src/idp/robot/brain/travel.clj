@@ -15,8 +15,6 @@
   :init {}
   :tick (fn [_ _] {:input (motor-input 0)}))
 
-(defn tick-through-tunnel [*state readings])
-
 (defn get-line-triggers
   "Line trigger = number of times line sensor has encountered
   a distinct white line since the last response."
@@ -379,7 +377,8 @@
                               :else false))
           nfinds (cond-> (:nfinds state) found-junction? inc)
           target-box (case (:density state)
-                       :high 3 :low 1
+                       :high 1 ;; red box
+                       :low 3 ;; green box
                        (throw (ex-info "No density!" {})))
           done? (<= target-box nfinds)]
       (if done?
@@ -489,13 +488,6 @@
     (let [combined-readings (get-combined-line-readings readings)
           follow-cmd ((:tick-fn biased-follow) state readings)
           cmd (merge-with merge {:state state} follow-cmd)
-          ;; Done when at the centre block cross,
-          ;; at least three white on the right
-          ; line-triggers (mapv #(if (pos? %) :w :b)
-          ;                 (get-line-triggers readings))
-          ; line-triggers (update-line-triggers line-triggers readings)
-          ; cmd (assoc-in [:state :line-triggers] line-triggers)
-          ; _ (prn line-triggers)
           cmd
           (if (= combined-readings
                 (:combined-line-readings state))
@@ -512,8 +504,14 @@
               :else
               cmd))
           state (:state cmd)
-          done? (and (<= 1 (:rhs-lines-found state))
-                  (<= 2 (:lhs-lines-found state)))]
+          found-first-collection-junction?
+          (<= 1 (:lhs-lines-found state))
+          found-centre-collection-junction?
+          (and (<= 1 (:rhs-lines-found state))
+            (<= 2 (:lhs-lines-found state)))
+          done? (or found-centre-collection-junction?
+                  (and found-first-collection-junction?
+                    (:block-present? readings)))]
       (if done?
         {:state {:phase-id nil}}
         (assoc-in cmd [:state :combined-line-readings]

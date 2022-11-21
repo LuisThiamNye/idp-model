@@ -1,17 +1,13 @@
 (ns idp.board.background
+  "Graphics of the table for the simulation"
   (:require
     [idp.board.params :as params]
     [idp.board.geo :as board.geo]
     [io.github.humbleui.ui :as ui]
-    [io.github.humbleui.core :as core]
-    [io.github.humbleui.protocols :as protocols]
     [io.github.humbleui.canvas :as canvas])
   (:import
     [io.github.humbleui.types IRect IPoint Rect]
-    [io.github.humbleui.skija Canvas ImageFilter SaveLayerRec Paint]
-    [java.lang AutoCloseable]))
-
-; (core/deftype+ )
+    [io.github.humbleui.skija Canvas Paint]))
 
 (def ui-bg-canvas
   (ui/canvas
@@ -19,22 +15,8 @@
      (fn [ctx ^Canvas cnv ^IPoint size]
        (let [{:keys [board-width board-height]} (:dims ctx)
              scale (* (:board-scale ctx) (:scale ctx))
-             {:keys [line-left-margin
-                     line-top-margin
-                     line-right-margin
-                     line-bottom-margin
-                     line-turn-radius
+             {:keys [line-turn-radius
                      line-width
-                     line-left-boxes-path-spacing
-                     line-right-boxes-path-spacing
-                     line-left-box-path-x
-                     line-box-length
-                     line-box-path-length
-                     line-collect-left-x
-                     line-collect-left-spacing
-                     line-collect-right-margin
-                     line-collect-offset-length
-                     line-collect-centre-length
                      tunnel-y
                      tunnel-width
                      tunnel-wall-thickness
@@ -51,10 +33,6 @@
                      tunnel-bg
                      barrier-bg
                      ramp-bg]} (:theme ctx)
-             line-horiz-xr (- board-width (+ line-turn-outer-radius line-right-margin))
-             turn-square-length (* 2 line-turn-outer-radius)
-             turn-insquare-length (* 2 line-turn-radius)
-             line-bottom-yb (- board-height line-bottom-margin)
              {:keys [tunnel-outer-wall-rect
                      tunnel-inner-wall-rect]} (board.geo/get-line-geo)
              ->rect #(Rect. (:left %) (:top %) (:right %) (:bottom %))]
@@ -172,7 +150,7 @@
            )))}))
 
 (def ui-background
-  (ui/dynamic ctx
+  (ui/dynamic _
     [ui-bg-canvas ui-bg-canvas
      theme params/theme]
     (ui/with-context

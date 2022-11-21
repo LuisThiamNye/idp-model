@@ -1,7 +1,8 @@
 (ns idp.robot.sim.tick
+  "Main entry point for handling each clock cycle of the simulation."
   (:require
     [idp.board.geo :as board.geo]
-    [idp.robot.sim.client :as sim.client]
+    [idp.robot.sim.server :as sim.server]
     [idp.robot.params :as robot.params]
     [idp.robot.state :refer [*real]]))
 
@@ -55,7 +56,7 @@
 (defn ray-rect-interior-collision-point
   "Gets closest point where a ray hits the interior wall of
   a rectangular container"
-  [{:keys [x y] :as origin} angle {:keys [left right top bottom]}]
+  [{:keys [x y] :as _origin} angle {:keys [left right top bottom]}]
   (let [closest-rect-x (cond
                          (or (<= 270 angle) (< angle 90))
                          right
@@ -78,14 +79,7 @@
                      {:x x2 :y  closest-rect-y}))]
       (or vpoint hpoint))))
 
-(comment
-  (ray-rect-collision-point
-    {:x 0 :y 10} 0
-    {:left -10 :right -5
-     :top 5 :bottom 15})
-  )
-
-(defn tick! [dt-micros]
+(defn tick-physics! [dt-micros]
   (swap! *real
     (fn [{:keys [position angle velocity angular-velocity] :as state}]
       (let [dt (/ dt-micros 1000000)
@@ -155,7 +149,7 @@
                            (assoc data
                              :distance (if in-range? distance 0)
                              :collision-pos (when in-range? collision-pos)))]
-               (assoc data :pos pos)))]
+                (assoc data :pos pos)))]
         (assoc state
           :line-sensor-1 (get-line-sensor 1)
           :line-sensor-2 (get-line-sensor 2)
@@ -164,5 +158,8 @@
           :ultrasonic-1 (get-us-data :ultrasonic-1)
           :ultrasonic-2 (get-us-data :ultrasonic-2)
           :position position
-          :angle (principal-angle angle)))))
-  (sim.client/tick!))
+          :angle (principal-angle angle))))))
+
+(defn tick! [dt-micros]
+  (tick-physics! dt-micros)
+  (sim.server/tick!))

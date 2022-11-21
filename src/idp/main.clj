@@ -1,4 +1,5 @@
 (ns idp.main
+  "Entry point of the program"
   (:require
     [babashka.fs :as fs]
     [nrepl.core :as nrepl]
@@ -51,6 +52,8 @@
   (println "Starting application")
   (start-app!)
   (println "Initialised")
+  ;; Block the main thread so that program remains alive
+  ;; Note that nREPL runs in a virtual (hence daemon) thread
   (let [o (Object.)]
     (locking o (.wait o))))
 
