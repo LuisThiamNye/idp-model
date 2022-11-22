@@ -508,6 +508,12 @@
         {:state {:started? true}
          :input input}))))
 
+(defphase stationary-open-grabber
+  :init (assoc (phase/get-initial-state tick-position-grabber)
+          :grabber-position :open)
+  :tick (fn [state readings]
+          ((:tick-fn tick-position-grabber) state readings)))
+
 (defphase detect-block
   "Closes grabber, determines density, and signals the density.
   The grabber remains closed."
@@ -594,8 +600,7 @@
         {:state (cond-> {:line-triggers line-triggers}
                   (not (or ls-far-right ls-right))
                   (assoc :over-horiz? false))
-         :input {:motor-1 (+ sturnf sturn)
-                 :motor-2 (- sturnf sturn)}}))))
+         :input (motor-input sturnf sturn)}))))
 
 (defphase exit-start
   :init {:line-triggers [0 0 0 0]

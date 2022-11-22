@@ -88,13 +88,14 @@
                          full-width (cond-> (:width size) signed? (/ 2))
                          width (* full-width (float coeff))
                          fill (:fill ctx fallback-fill)
-                         height (:height size)]
+                         height (:height size)
+                         loffset (if (= :left zero-location)
+                                   0
+                                   full-width)]
                      (.drawRect cnv
                        (if (neg? coeff)
-                         (Rect/makeLTRB
-                           (+ full-width width) 0 full-width height)
-                         (Rect/makeLTRB
-                           full-width 0 (+ full-width width) height))
+                         (Rect/makeLTRB (+ loffset width) 0 loffset height)
+                         (Rect/makeXYWH loffset 0 width height))
                        fill)))))}))))))
 
 (def ui-motor
@@ -127,8 +128,8 @@
         [:stretch 1 (ui/with-context {:motor-speed motor-1} ui-motor)]
         [:stretch 1 (ui/with-context {:motor-speed motor-2} ui-motor)]))))
 
-(let [max-dist 800]
-  (defn ui-ultrasonic [us-key]
+(defn ui-ultrasonic [us-key]
+  (let [max-dist 800]
     (ui/dynamic _ [ui-rect-meter ui-rect-meter]
       (ui/stack
         (ui/dynamic ctx [dist (or (us-key (:robot-readings ctx)) 0)]
@@ -152,8 +153,8 @@
   (let [bg-fill (paint/fill 0xFFe0e0e0)
         active-fill (paint/fill 0xFF89dddd)
         nodata-fill (paint/fill 0xFFa5c6c6)
-        px-per-t 0.02
-        max-dist 700]
+        px-per-t 0.04
+        max-dist 1400]
     (ui/width 100
       (ui/canvas
         {:on-paint
@@ -377,7 +378,8 @@
 
 (def ui-client-controls
   (ui/dynamic ctx
-    [{:keys [client]} ctx]
+    [{:keys [client]} ctx
+     {:keys [robot]} ctx]
     (ui/row
       (ui/dynamic ctx
         [{:keys [client-loop]
@@ -422,7 +424,14 @@
                                    (client/-get-connection client))]
         (ui/valign 0.5 (ui/label (name conn-status))))
       (ui/gap 5 0)
-      (ui/checkbox *select-sim? (ui/label "Sim")))))
+      (ui/checkbox *select-sim? (ui/label "Sim"))
+      (ui/gap 5 0)
+      (ui/button
+        (fn []
+          (swap! (:*input robot) update
+            :grabber-position
+            #(if (= :open %) :closed :open)))
+        (ui/label "Grabber")))))
 
 (def ui-phase-select
   (let [*history (atom {:entries []
@@ -573,7 +582,7 @@
                    (ui/label (str "Responses: " npoints)))))))
          (ui/gap 0 5)
          (ui/height 100 ui-latency-graph))]
-      #_ui-ultrasonics-graph)))
+      ui-ultrasonics-graph)))
 
 (def ui-root
   (ui/mouse-listener

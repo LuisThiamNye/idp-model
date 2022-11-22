@@ -9,6 +9,7 @@
     [io.github.humbleui.window :as window]
     [idp.robot.sim.ui :as sim.ui]
     [idp.robot.monitor.panel :as monitor.panel]
+    [idp.robot.brain.phase :as phase]
     [idp.common :as common]
     [idp.robot.state :as robot.state]
     [idp.loopthread :as loopth]
@@ -46,7 +47,16 @@
             (ui/label "Stop"))
           (ui/gap 0 5)
           (ui/button
-            (fn [])
+            (fn []
+              (swap! (:*state robot)
+                (fn [state]
+                  (-> state
+                    (assoc
+                      :auto? true
+                      :next-phase-map
+                      {:detect-block :stationary-open-grabber
+                       :stationary-open-grabber :stop})
+                    (phase/init-phase-id-on-state :detect-block)))))
             (ui/label "Detect"))
           (ui/gap 0 5)
           (ui/button

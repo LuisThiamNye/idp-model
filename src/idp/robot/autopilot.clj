@@ -53,11 +53,12 @@
   (loopth/make-loop
     (tick-fn *sim-loop-state)))
 
-(def *net-loop-state
-  (atom {:robot robot.state/net-robot
-         :delay 0
-         :*speed (atom 1)
-         :*client net.api/*client}))
+(def *net-loop-state (atom nil))
+(reset! *net-loop-state
+  {:robot robot.state/net-robot
+   :delay 0
+   :*speed (atom 1)
+   :*client net.api/*client})
 
 (def *net-loop
   (loopth/make-loop
@@ -93,11 +94,6 @@
   (swap! (:*input active-robot) assoc
     :ultrasonic-active? true)
   
-  (swap! (:*input active-robot) update
-    :grabber-position
-    #(if (= :open %) :closed :open)
-    )
-  
   
   (swap! (:*input active-robot) assoc
     :signal-block-density :low)
@@ -116,7 +112,5 @@
   
   (swap! (:*state active-robot) assoc
     :competition-start-time (System/currentTimeMillis))
-  
-  
   
   )
