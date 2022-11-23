@@ -507,6 +507,37 @@
                      (:phase-id @*robot-state))))
           (ui/label "Clean"))))))
 
+(def ui-raw-state-display
+  (let [fmt-data #(zprint.core/zprint-str %
+                    {:map {:justify? true
+                           :justify {:max-variance 20}}
+                     :width 60})]
+    (ui/column
+      (ui/dynamic ctx
+        [readings (:robot-readings ctx)]
+        (multiline-label
+          (fmt-data (dissoc readings
+                      :line-sensor-1
+                      :line-sensor-2
+                      :line-sensor-3
+                      :line-sensor-4
+                      :ultrasonic-1
+                      :ultrasonic-2
+                      :block-density
+                      :block-present?
+                      :dt
+                      :time-received))))
+      (ui/gap 0 8)
+      (ui/dynamic ctx
+        [state (:robot-state ctx)]
+        (multiline-label
+          (fmt-data (dissoc state :readings-history))))
+      (ui/gap 0 8)
+      (ui/dynamic ctx
+        [input (:robot-input ctx)]
+        (multiline-label
+          (fmt-data (dissoc input :motor-1 :motor-2)))))))
+
 (def ui-mainpage
   (ui/dynamic _ [ui-line-sensors ui-line-sensors
                  ui-motors ui-motors
@@ -516,7 +547,8 @@
                  ui-client-controls ui-client-controls
                  ui-latency-graph ui-latency-graph
                  ui-block-status ui-block-status
-                 ui-phase-select ui-phase-select]
+                 ui-phase-select ui-phase-select
+                 ui-raw-state-display ui-raw-state-display]
     (ui/row
       ui-line-sensors-graph
       [:stretch 1
@@ -532,38 +564,11 @@
          (ui/gap 0 5)
          (ui/padding 5 0 ui-ultrasonics)
          [:stretch 1
-          (ui/vscrollbar
-            (ui/vscroll
-              (ui/padding 5
-                (let [fmt-data #(zprint.core/zprint-str %
-                                  {:map {:justify? true
-                                         :justify {:max-variance 20}}
-                                   :width 60})]
-                  (ui/column
-                    (ui/dynamic ctx
-                      [readings (:robot-readings ctx)]
-                      (multiline-label
-                        (fmt-data (dissoc readings
-                                    :line-sensor-1
-                                    :line-sensor-2
-                                    :line-sensor-3
-                                    :line-sensor-4
-                                    :ultrasonic-1
-                                    :ultrasonic-2
-                                    :block-density
-                                    :block-present?
-                                    :dt
-                                    :time-received))))
-                    (ui/gap 0 8)
-                    (ui/dynamic ctx
-                      [state (:robot-state ctx)]
-                      (multiline-label
-                        (fmt-data (dissoc state :readings-history))))
-                    (ui/gap 0 8)
-                    (ui/dynamic ctx
-                      [input (:robot-input ctx)]
-                      (multiline-label
-                        (fmt-data (dissoc input :motor-1 :motor-2)))))))))]
+          (ui/column ;; column to ensure scroll gets measured and updated
+            (ui/vscrollbar
+              (ui/vscroll
+                (ui/padding 5
+                  ui-raw-state-display))))]
          (ui/row
            ui-phase-select
            (ui/gap 5 0)

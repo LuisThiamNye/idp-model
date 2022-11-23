@@ -82,6 +82,11 @@
      :box-approach-turn :box-approach-turn-spin
      :box-approach-turn-spin :box-approach-edge
      :box-approach-edge :backup-from-box
+     
+     [:backup-from-box {:go-home? true}] :up-to-home-entry
+     :up-to-home-entry :align-to-home
+     
+     [:backup-from-box {:go-home? false}] :start-to-centre-block
      }
     )
   
@@ -107,10 +112,20 @@
     assoc :delay 0)
   
   (swap! (:*input robot.state/net-robot) assoc
-    :motor-1 2
-    :motor-2 2)
+    :motor-1 255
+    :motor-2 255)
+  (swap! (:*input robot.state/net-robot) assoc
+    :motor-1 0
+    :motor-2 0)
   
   (swap! (:*state active-robot) assoc
     :competition-start-time (System/currentTimeMillis))
+  
+  (swap! (:*state active-robot) assoc
+    :competition-start-time (System/currentTimeMillis))
+  
+  (swap! (:*state active-robot) assoc
+    :density :low)
+  
   
   )
