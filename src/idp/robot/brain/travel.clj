@@ -1,6 +1,7 @@
 (ns idp.robot.brain.travel
   (:require
     [idp.net.api :as api]
+    []
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
     [idp.robot.state :as robot.state]))
@@ -245,6 +246,7 @@
   "Move straight forwards for fixed amount of time at a given speed"
   :init {:duration 0
          :speed 200
+         :turn-speed 0
          :time-elapsed 0}
   :tick
   (fn [{:keys [speed] :as state} readings]
@@ -253,7 +255,7 @@
       (if done?
         {:state {:phase-id nil}}
         {:state {:time-elapsed time-elapsed}
-         :input (motor-input speed)}))))
+         :input (motor-input speed (:turn-speed state))}))))
 
 (defphase junction-turn-spin
   "Turn from one junction exit to another.
@@ -298,7 +300,11 @@
         competition-duration (* 5 60 1000) ;; 5 mins
         time-passed (- (System/currentTimeMillis) competition-start-time)
         time-remaining (- competition-duration time-passed)]
-    (<= min-collect-duration time-remaining)))
+    (<= min-collect-duration time-remaining))
+  
+  ;; FIXME
+  false
+  )
 
 #_(defphase align-to-home
   "Takes a robot on the home path up to the edge of the home box,
@@ -548,6 +554,29 @@
   :init (phase/get-initial-state follow-up-to-blackout)
   :tick #((:tick-fn follow-up-to-blackout) %1 %2))
 
+(defphase centre-block-180
+  :init {:nturns 0
+         :sub-states
+         {:turn1 (assoc (phase/get-initial-state timed-forwards)
+                   :duration 2000
+                   :speed 0
+                   :turn-speed 200)
+          :turn2 (assoc (phase/get-initial-state junction-turn-spin)
+                   :turn-direction :right)}}
+  :tick
+  (fn [state readings]
+    (let [nturns (:nturns state)
+          first? (= 0 nturns)
+          ss (if first? :turn1 :turn2)
+          cmd (if first?
+                (phase/tick-nested timed-forwards :turn1 state readings)
+                (phase/tick-nested junction-turn-spin :turn2 state readings))]
+      (if (phase/phase-done? cmd ss)
+        (if first?
+          (update cmd :state assoc :nturns (inc nturns))
+          (update cmd :state assoc :phase-id nil))
+        cmd))))
+
 (defphase signal-block-density
   :init (fn [prev]
           {:density (:density prev :high)
@@ -594,7 +623,6 @@
           (phase/get-initial-state tick-position-grabber))
   :tick
   (fn [state readings]
-    (prn (:sub-status state))
     (case (:sub-status state)
       :pushing
       (let [cmd (phase/tick-nested timed-forwards :pushing state readings)]
@@ -622,10 +650,12 @@
   Conditions for stop:
   - Find the first collection junction (left turn, three line sensors)
   - Find the centre junction (three line sensors trigger on each side)"
-  :init {:rhs-lines-found 0
-         :lhs-lines-found 0
-         :sub-states {:biased-follow (assoc (phase/get-initial-state biased-follow)
-                                       :high-power? true)}}
+  :init (fn [prev]
+          {:rhs-lines-found 0
+           :lhs-lines-found 0
+           :sub-states {:biased-follow (assoc (phase/get-initial-state biased-follow)
+                                         :high-power? true
+                                         :bias (:bias prev))}})
   :tick
   (fn [state readings]
     (let [combined-readings (get-combined-line-readings readings)
@@ -661,11 +691,37 @@
         (assoc-in cmd [:state :combined-line-readings]
           combined-readings)))))
 
+(defphase start-to-centre-block-tunnel
+  :init {:sub-status :tunnel-approach
+         :sub-states {:tunnel-approach (phase/get-initial-state tunnel-approach)
+                      :tunnel (phase/get-initial-state through-tunnel)
+                      :to-centre (phase/get-initial-state start-to-centre-block
+                                   {:bias :right})}}
+  :tick
+  (fn [state readings]
+    (case (:sub-status state)
+      :tunnel-approach
+      (let [cmd (phase/tick-nested tunnel-approach :tunnel-approach state readings)]
+        (if (phase/phase-done? cmd :tunnel-approach)
+          (update cmd :state assoc :sub-status :tunnel)
+          cmd))
+      :tunnel
+      (let [cmd (phase/tick-nested through-tunnel :tunnel state readings)]
+        (if (phase/phase-done? cmd :tunnel)
+          (update cmd :state assoc :sub-status :to-centre)
+          cmd))
+      :to-centre
+      (let [cmd (phase/tick-nested start-to-centre-block :to-centre state readings)]
+        (if (phase/phase-done? cmd :to-centre)
+          (update cmd :state assoc :phase-id
+            ((:next-phase-map state {}) [(:phase-id state)]))
+          cmd)))))
+
 (defphase exit-start-turn
   :init {:line-triggers [0 0 0 0]}
   :tick
   (fn [state readings]
-    (let [sturn 120
+    (let [sturn -120
           sturnf 170
           [_ _ ls-right ls-far-right]
           (robot.state/get-white-line-sensors readings)

@@ -73,9 +73,12 @@
   
   (swap! (:*state active-robot) assoc :next-phase-map
     {:exit-start :exit-start-turn
-     :exit-start-turn :start-to-centre-block
+     ; :exit-start-turn :start-to-centre-block
+     :exit-start-turn :start-to-centre-block-tunnel
+     [:start-to-centre-block-tunnel] :detect-block
      :start-to-centre-block :detect-block
-     :detect-block :tunnel-approach
+     :detect-block :centre-block-180
+     :centre-block-180 :tunnel-approach
      :tunnel-approach :through-tunnel
      :through-tunnel :up-to-box
      :up-to-box :box-approach-turn
