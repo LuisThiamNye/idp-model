@@ -40,8 +40,7 @@
            (ui/label "Simulation"))
           (ui/gap 0 10)
           (ui/column
-            (ui/checkbox
-              *sim?
+            (ui/checkbox *sim?
               (ui/label "Sim?"))
             (ui/button
               (fn []

@@ -2,6 +2,7 @@
   "Server logic of the simulated robot.
   Mimics code that would run on the Arduino"
   (:require
+    [idp.robot.params :as robot.params]
     [idp.robot.sim.device :as device]
     [idp.robot.state :as robot.state]))
 
@@ -48,14 +49,8 @@
       (mapv (fn [n prev current]
               (cond-> n (not= prev current) inc))
         switches
-        [(:line-sensor-1 prev-readings)
-         (:line-sensor-2 prev-readings)
-         (:line-sensor-3 prev-readings)
-         (:line-sensor-4 prev-readings)]
-        [(:line-sensor-1 readings)
-         (:line-sensor-2 readings)
-         (:line-sensor-3 readings)
-         (:line-sensor-4 readings)]))))
+        (:line-sensors prev-readings)
+        (:line-sensors readings)))))
 
 (defn process-request! [*state req]
   ;; important to use id rather than :retry? bit or else cannot
@@ -66,8 +61,6 @@
         :retry? (= (:req-id state) (:id req))
         :req-id (:id req))))
   (device/process-input! req))
-
-(def rc-timeout 100)
 
 (defn pause-activities! []
   (device/process-input! {:motor-1 0 :motor-2 0}))
@@ -100,7 +93,8 @@
         (swap! *state update :ready-req-queue pop)
         (process-request! *state input)
         (send-response! *state))
-      (when (and (< rc-timeout (- (System/currentTimeMillis)
-                                 (:last-insn-time state -1)))
+      (when (and (< robot.params/rc-timeout
+                   (- (System/currentTimeMillis)
+                     (:last-insn-time state -1)))
               (not paused?))
         (pause-activities!)))))

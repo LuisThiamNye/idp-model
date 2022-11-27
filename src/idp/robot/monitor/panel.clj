@@ -39,32 +39,27 @@
                    ry (/ (:height size) 2)]
                (.drawCircle cnv rx ry
                  (min rx ry)
-                 (if (:line-sensor-triggered? ctx)
+                 (if (= :white (:line-sensor-reading ctx))
                    active-fill
                    inactive-fill))))})))))
 
 (def ui-line-sensors
   (ui/dynamic ctx
     [ui-line-sensor-dot ui-line-sensor-dot
-     {:keys [line-sensor-1
-             line-sensor-2
-             line-sensor-3
-             line-sensor-4]} (:robot-readings ctx)
-     {:keys [mouse-on-line?]} @state/*misc
+     line-sensors (:line-sensors
+                    (:robot-readings ctx))
+     ; {:keys [mouse-on-line?]} @state/*misc
      ui-ls (fn [ls]
              (ui/with-context
-               {:line-sensor-triggered? ls}
+               {:line-sensor-reading ls}
                ui-line-sensor-dot))]
     (let [gap 5]
       (ui/row
-       (ui-ls line-sensor-4)
-       (ui/gap gap 0)
-       (ui-ls line-sensor-3)
-       (ui/gap gap 0)
-       (ui-ls line-sensor-2)
-       (ui/gap gap 0)
-       (ui-ls line-sensor-1)
-       (ui/gap (* 2.5 gap) 0)
+        (eduction
+          (map ui-ls)
+          (interpose (ui/gap gap 0))
+          line-sensors)
+       #_#_(ui/gap (* 2.5 gap) 0)
        (ui/with-context
          {:line-sensor-triggered? mouse-on-line?}
          ui-line-sensor-dot)))))
@@ -216,29 +211,22 @@
                     y (unchecked-int 0)]
                (when (and (<= 0 i)
                        (<= y rect-height))
-                 (let [{:keys [line-sensor-1
-                               line-sensor-2
-                               line-sensor-3
-                               line-sensor-4
+                 (let [{:keys [line-sensors
                                line-switches
                                dt]} (nth history i)
                        seg-height (min (* px-per-t dt) rect-height)
                        y2 (unchecked-int (+ y seg-height))
                        draw-seg
                        (fn [n x]
-                         (let [on? (case (unchecked-int n)
-                                     0 line-sensor-1
-                                     1 line-sensor-2
-                                     2 line-sensor-3
-                                     3 line-sensor-4)
+                         (let [white? (= :white (nth line-sensors n))
                                nswitches (nth line-switches n)
                                mseg-height (/ seg-height (inc nswitches))]
-                           (when on?
+                           (when white?
                              (.drawRect cnv
                                (Rect/makeXYWH x y seg-width seg-height)
                                active-fill))
                            (loop [i 1
-                                  on? (not on?)]
+                                  on? (not white?)]
                              (when (<= i nswitches)
                                (.drawRect cnv
                                  (Rect/makeXYWH x (+ y (* i mseg-height))
@@ -247,10 +235,10 @@
                                    missed-active-fill
                                    missed-inactive-fill))
                                (recur (inc i) (not on?))))))]
-                     (draw-seg 3 0)
-                     (draw-seg 2 seg-width)
-                     (draw-seg 1 (* 2 seg-width))
-                     (draw-seg 0 (* 3 seg-width))
+                     (draw-seg 0 0)
+                     (draw-seg 1 seg-width)
+                     (draw-seg 2 (* 2 seg-width))
+                     (draw-seg 3 (* 3 seg-width))
                  (recur (unchecked-dec i) y2))))))}))))
 
 (def ui-latency-graph-overlay
@@ -510,17 +498,15 @@
 (def ui-raw-state-display
   (let [fmt-data #(zprint.core/zprint-str %
                     {:map {:justify? true
-                           :justify {:max-variance 20}}
+                           :justify {:max-variance 20}
+                           :key-ignore [:history]}
                      :width 60})]
-    (ui/column
+    (ui/column #_
       (ui/dynamic ctx
         [readings (:robot-readings ctx)]
         (multiline-label
           (fmt-data (dissoc readings
-                      :line-sensor-1
-                      :line-sensor-2
-                      :line-sensor-3
-                      :line-sensor-4
+                      :line-sensors
                       :ultrasonic-1
                       :ultrasonic-2
                       :block-density
@@ -531,7 +517,8 @@
       (ui/dynamic ctx
         [state (:robot-state ctx)]
         (multiline-label
-          (fmt-data (dissoc state :readings-history))))
+          (fmt-data (dissoc state :readings-history
+                      :next-phase-map))))
       (ui/gap 0 8)
       (ui/dynamic ctx
         [input (:robot-input ctx)]
@@ -567,7 +554,7 @@
           (ui/column ;; column to ensure scroll gets measured and updated
             (ui/vscrollbar
               (ui/vscroll
-                (ui/padding 5
+                (ui/padding 5 0 5 5
                   ui-raw-state-display))))]
          (ui/row
            ui-phase-select

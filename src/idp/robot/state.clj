@@ -31,10 +31,7 @@
                    (- centre-y (/ length 2))))
      :angle 270 ;; measured clockwise from x+ direction
      
-     :line-sensor-1 false
-     :line-sensor-2 false
-     :line-sensor-3 false
-     :line-sensor-4 false
+     :line-sensors [:black :black :black :black]
      :ultrasonic-1 {:pos {:x -1 :y -1}
                     :collision-pos {:x -1 :y -1}}
      :ultrasonic-2 {:pos {:x -1 :y -1}
@@ -54,10 +51,7 @@
    :competition-start-time -1})
 
 (def initial-readings
-  {:line-sensor-1 false
-   :line-sensor-2 false
-   :line-sensor-3 false
-   :line-sensor-4 false
+  {:line-sensors [:black :black :black :black]
    :line-switches [0 0 0 0]
    :grabber-moving? false
    :ultrasonic-1 0
@@ -80,7 +74,7 @@
   (reset! *input initial-input))
 
 (comment
-  @(:*readings robot1)
+  @(:*readings sim-robot)
   @(:*input robot1)
   
   (reset-robot! net-robot)
@@ -97,14 +91,17 @@
   robot (left to right, from robot's perspective).
   Each reading is either :white or :black"
   [readings]
-  (mapv #(if % :white :black)
-    [(:line-sensor-1 readings)
-     (:line-sensor-2 readings)
-     (:line-sensor-3 readings)
-     (:line-sensor-4 readings)]))
+  (:line-sensors readings))
 
 (defn get-white-line-sensors
   "Returns a vector of boolean indicating whether each line sensor
   is on the line. Order is the same as `get-line-sensors`"
   [readings]
   (mapv #(= :white %) (get-line-sensors readings)))
+
+(defn get-active-dt
+  "The duration of time since the previous response that
+  the robot was operating in an unpaused state.
+  May be an estimation"
+  [readings]
+  (min (:dt readings) robot.params/rc-timeout))

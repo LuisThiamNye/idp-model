@@ -37,7 +37,8 @@
                     speed)))
           (when (:auto? @*state)
             (let [readings @*readings]
-              (swap! (:*input robot) merge (travel/tick! *state readings)))))))))
+              (swap! (:*input robot) merge
+                (travel/tick! *state readings @(:*input robot))))))))))
 
 (defn tick-fn [params]
   #(tick! params %))
@@ -45,7 +46,7 @@
 (def *sim-loop-state (atom nil))
 (reset! *sim-loop-state
   {:robot robot.state/sim-robot
-   :delay 40
+   :delay 20
    :*speed robot.state/*sim-speed
    :*client sim.client/*client})
 
@@ -73,12 +74,15 @@
   
   (swap! (:*state active-robot) assoc :next-phase-map
     {:exit-start :exit-start-turn
-     ; :exit-start-turn :start-to-centre-block
-     :exit-start-turn :start-to-centre-block-tunnel
+     :exit-start-turn :up-to-ramp
+     :up-to-ramp :post-ramp-find-junction
+     :post-ramp-find-junction :start-to-centre-block
+     ; :exit-start-turn :start-to-centre-block-tunnel
      [:start-to-centre-block-tunnel] :detect-block
      :start-to-centre-block :detect-block
-     :detect-block :centre-block-180
-     :centre-block-180 :tunnel-approach
+     :detect-block :tunnel-approach
+     ; :detect-block :centre-block-180
+     ; :centre-block-180 :tunnel-approach
      :tunnel-approach :through-tunnel
      :through-tunnel :up-to-box
      :up-to-box :box-approach-turn

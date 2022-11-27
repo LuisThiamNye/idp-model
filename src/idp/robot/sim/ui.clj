@@ -58,8 +58,24 @@
             (ui/dynamic _ [angle (:angle @robot.state/*real)]
               (ui/label (format "%#5.1f°" (unchecked-double angle))))))))))
 
+(def *savestate (atom {}))
+
+(def ui-savestate-controls
+  (ui/dynamic _ []
+    (ui/row
+      (ui/button
+        (fn []
+          (reset! *savestate (select-keys @robot.state/*real
+                               [:position :angle])))
+        (ui/label "Save"))
+      (ui/button
+        (fn []
+          (swap! robot.state/*real merge @*savestate))
+        (ui/label "Load")))))
+
 (def ui-controls
   (ui/dynamic _ [ui-angle-slider ui-angle-slider
+                 ui-savestate-controls ui-savestate-controls
                  multiline-label common/multiline-label]
     (ui/padding 6 0
       (ui/column
@@ -82,14 +98,16 @@
                 (ui/label (str "Density: " (name density)))))))
         (ui/gap 0 5)
         (ui/center
-          (ui/dynamic _ [looping? (sim/sim-running?)]
-            (common/action-checkbox
-              {:state looping?
-               :on-toggle (fn [_ checked?]
-                            (if checked?
-                              (sim/start!)
-                              (sim/stop!)))}
-              (ui/label "Sim loop"))))
+          (ui/row
+            ui-savestate-controls
+            (ui/dynamic _ [looping? (sim/sim-running?)]
+              (common/action-checkbox
+                {:state looping?
+                 :on-toggle (fn [_ checked?]
+                              (if checked?
+                                (sim/start!)
+                                (sim/stop!)))}
+                (ui/label "Sim loop")))))
         (ui/row
           (ui/valign 0.5 (ui/label "Speed"))
           (ui/gap 5 0)

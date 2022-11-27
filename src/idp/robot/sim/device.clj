@@ -43,11 +43,7 @@
   []
   (let [real-state @robot.state/*real]
     (->
-      (select-keys real-state
-        [:line-sensor-1
-         :line-sensor-2
-         :line-sensor-3
-         :line-sensor-4])
+      (select-keys real-state [:line-sensors])
       (assoc
         :block-density @robot.state/*sim-block-density
         :block-present? @robot.state/*sim-block-present?

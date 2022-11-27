@@ -2,6 +2,11 @@
   (:require
     [io.github.humbleui.paint :as paint]))
 
+(def rc-timeout
+  "Arduino will pause itself after this duration without
+  receiving a request"
+  100)
+
 (def dims
   "Important dimensions of the robot"
   (let [axle-y 170
@@ -10,7 +15,7 @@
      :length 200
      :centre-y axle-y
      :line-sensors-y (- axle-y axle-to-ls)
-     :line-sensors-spacing 19
+     :line-sensors-spacing 20
      :line-sensors-centre-spacing 19
      
      :wheel-diameter 105
@@ -44,8 +49,8 @@
                 line-sensors-y]} dims
         centre-offset (/ line-sensors-centre-spacing 2)
         offset (case (unchecked-int n)
-                 4 (- 0 line-sensors-spacing centre-offset)
-                 3 (- centre-offset)
-                 2 centre-offset
-                 1 (+ line-sensors-spacing centre-offset))]
+                 1 (- 0 line-sensors-spacing centre-offset)
+                 2 (- centre-offset)
+                 3 centre-offset
+                 4 (+ line-sensors-spacing centre-offset))]
     {:x offset :y (- line-sensors-y centre-y)}))

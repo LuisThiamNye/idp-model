@@ -54,14 +54,34 @@
    (and (contains? state :phase-id)
      (nil? (:phase-id state)))))
 
-(defn tick-nested [phase nest-key parent-state readings]
-  (let [sub-state (-> parent-state :sub-states nest-key)
-        nested-cmd ((:tick-fn phase) sub-state readings)]
+(defn merge-states [state1 state2]
+  (cond-> (merge state1 (dissoc state2 :sub-states))
+    (:sub-states state2)
+    (assoc :sub-states
+      (merge-with merge (:sub-states state1) (:sub-states state2)))))
+
+(defn tick-nested [phase nest-key robot]
+  (let [parent-state (:state robot)
+        {:keys [sub-states]} parent-state
+        _ (assert (contains? sub-states nest-key)
+            (str nest-key " does not exist"))
+        sub-state (-> sub-states nest-key)
+        nested-cmd ((:tick-fn phase) (assoc robot :state sub-state))]
     (update nested-cmd :state
-      (fn [state2]
-        {:sub-states (assoc (:sub-states parent-state)
-                       nest-key (merge sub-state state2))}))))
+      (fn [sub-state2]
+        {:sub-states
+         (assoc {}
+           nest-key (merge-states sub-state sub-state2))}))))
 
 (defn get-nested-state [{:keys [state]} nest-key]
   (get (:sub-states state) nest-key))
 
+(defn merge-cmds
+  ([cmd1 cmd2]
+   (-> (merge-with merge
+         cmd1 (dissoc cmd2 :state))
+     (assoc :state (merge-states (:state cmd1) (:state cmd2)))))
+  ([cmd1 cmd2 & cmds]
+   (reduce merge-cmds
+     (merge-cmds cmd1 cmd2)
+     cmds)))

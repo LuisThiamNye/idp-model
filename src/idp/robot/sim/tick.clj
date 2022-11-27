@@ -82,79 +82,78 @@
 (defn tick-physics! [dt-micros]
   (swap! *real
     (fn [{:keys [position angle velocity angular-velocity] :as state}]
-      (let [dt (/ dt-micros 1000000)
-            angle' (* (/ angle 180) Math/PI)
-            dx (* dt velocity (Math/cos angle'))
-            dy (* dt velocity (Math/sin angle'))
-            position (-> position
-                       (update :x + dx)
-                       (update :y + dy))
-            dangle (* angular-velocity dt)
-            angle (+ angle dangle)
-            rot-2d (fn [deg {:keys [x y]}]
-                     (let [rad (* (/ deg 180) Math/PI)]
-                       {:x (+ (* x (Math/cos rad))
-                             (* y (- (Math/sin rad))))
-                        :y (+ (* x (Math/sin rad))
-                             (* y (Math/cos rad)))}))
-            absolutise-robot-point
-            (fn [pos]
-              (-> (rot-2d (- angle 270) pos)
-                (update :x + (:x position))
-                (update :y + (:y position))))
-            get-line-sensor
-            (fn [n]
-              (board.geo/point-on-line?
-                (absolutise-robot-point
-                  (robot.params/get-line-sensor-pos n))))
-            {:keys [tunnel-outer-wall-rect
-                    tunnel-inner-wall-rect
-                    board-rect]} (board.geo/get-line-geo)
-            sub-points (fn [p1 p2]
-                         {:x (- (:x p1) (:x p2))
-                          :y (- (:y p1) (:y p2))})
-            vec-abs (fn [{:keys [x y]}]
-                      (Math/sqrt
-                        (+ (Math/pow x 2)
-                          (Math/pow y 2))))
-            get-us-collision-data-for-rect
-            (fn [pos us-angle rect in-or-ext]
-              (let [collision-pos
-                    ((case in-or-ext
-                       :interior ray-rect-interior-collision-point
-                       :exterior ray-rect-collision-point)
-                     pos us-angle rect)]
-                (when collision-pos
-                  {:collision-pos collision-pos
-                   :distance (vec-abs (sub-points pos collision-pos))})))
-            get-us-data
-            (fn [us-key]
-              (let [us (us-key robot.params/dims)
-                    pos (absolutise-robot-point (:pos us))
-                    us-angle (principal-angle (+ angle (:angle us)))
-                    data
-                    (reduce
-                      (fn [winner [rect in-or-ext]]
-                        (let [data (get-us-collision-data-for-rect
-                                     pos us-angle rect in-or-ext)]
-                          (if (and data
-                                (< (:distance data) (:distance winner)))
-                            data winner)))
-                      {:distance ##Inf}
-                      [[tunnel-outer-wall-rect :exterior]
-                       [tunnel-inner-wall-rect :exterior]
-                       [board-rect :interior]])
-                    data (let [{:keys [distance collision-pos]} data
-                               in-range? (< 25 distance 2000)]
-                           (assoc data
-                             :distance (if in-range? distance 0)
-                             :collision-pos (when in-range? collision-pos)))]
-                (assoc data :pos pos)))]
+      (let
+        [dt (/ dt-micros 1000000)
+         angle' (* (/ angle 180) Math/PI)
+         dx (* dt velocity (Math/cos angle'))
+         dy (* dt velocity (Math/sin angle'))
+         position (-> position
+                    (update :x + dx)
+                    (update :y + dy))
+         dangle (* angular-velocity dt)
+         angle (+ angle dangle)
+         rot-2d (fn [deg {:keys [x y]}]
+                  (let [rad (* (/ deg 180) Math/PI)]
+                    {:x (+ (* x (Math/cos rad))
+                          (* y (- (Math/sin rad))))
+                     :y (+ (* x (Math/sin rad))
+                          (* y (Math/cos rad)))}))
+         absolutise-robot-point
+         (fn [pos]
+           (-> (rot-2d (- angle 270) pos)
+             (update :x + (:x position))
+             (update :y + (:y position))))
+         get-line-sensor
+         (fn [n]
+           (if (board.geo/point-on-line?
+                 (absolutise-robot-point
+                   (robot.params/get-line-sensor-pos n)))
+             :white :black))
+         {:keys [tunnel-outer-wall-rect
+                 tunnel-inner-wall-rect
+                 board-rect]} (board.geo/get-line-geo)
+         sub-points (fn [p1 p2]
+                      {:x (- (:x p1) (:x p2))
+                       :y (- (:y p1) (:y p2))})
+         vec-abs (fn [{:keys [x y]}]
+                   (Math/sqrt
+                     (+ (Math/pow x 2)
+                       (Math/pow y 2))))
+         get-us-collision-data-for-rect
+         (fn [pos us-angle rect in-or-ext]
+           (let [collision-pos
+                 ((case in-or-ext
+                    :interior ray-rect-interior-collision-point
+                    :exterior ray-rect-collision-point)
+                  pos us-angle rect)]
+             (when collision-pos
+               {:collision-pos collision-pos
+                :distance (vec-abs (sub-points pos collision-pos))})))
+         get-us-data
+         (fn [us-key]
+           (let [us (us-key robot.params/dims)
+                 pos (absolutise-robot-point (:pos us))
+                 us-angle (principal-angle (+ angle (:angle us)))
+                 data
+                 (reduce
+                   (fn [winner [rect in-or-ext]]
+                     (let [data (get-us-collision-data-for-rect
+                                  pos us-angle rect in-or-ext)]
+                       (if (and data
+                             (< (:distance data) (:distance winner)))
+                         data winner)))
+                   {:distance ##Inf}
+                   [[tunnel-outer-wall-rect :exterior]
+                    [tunnel-inner-wall-rect :exterior]
+                    [board-rect :interior]])
+                 data (let [{:keys [distance collision-pos]} data
+                            in-range? (< 25 distance 2000)]
+                        (assoc data
+                          :distance (if in-range? distance 0)
+                          :collision-pos (when in-range? collision-pos)))]
+             (assoc data :pos pos)))]
         (assoc state
-          :line-sensor-1 (get-line-sensor 1)
-          :line-sensor-2 (get-line-sensor 2)
-          :line-sensor-3 (get-line-sensor 3)
-          :line-sensor-4 (get-line-sensor 4)
+          :line-sensors (mapv get-line-sensor (range 1 5))
           :ultrasonic-1 (get-us-data :ultrasonic-1)
           :ultrasonic-2 (get-us-data :ultrasonic-2)
           :position position

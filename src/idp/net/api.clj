@@ -45,10 +45,11 @@
         us-byte2 (aget res-bytes 2)
         us-byte3 (aget res-bytes 3)
         us-byte4 (aget res-bytes 4)]
-    {:line-sensor-1 (bit-test linef-byte 7) ; true if white
-     :line-sensor-2 (bit-test linef-byte 6)
-     :line-sensor-3 (bit-test linef-byte 5)
-     :line-sensor-4 (bit-test linef-byte 4)
+    {:line-sensors (mapv #(if % :white :black)
+                     [(bit-test linef-byte 4)
+                      (bit-test linef-byte 5)
+                      (bit-test linef-byte 6)
+                      (bit-test linef-byte 7)])
      :block-present? (bit-test linef-byte 3)
      :block-density (if (bit-test linef-byte 2)
                       :high :low)
@@ -91,7 +92,7 @@
         :motor1-rev? (neg? motor-1)
         :motor2-rev? (neg? motor-2)
         :get-ultrasonic-data? ultrasonic-active?
-        :close-grabber? (not= grabber-position :closed)})
+        :close-grabber? (= grabber-position :closed)})
      (clamp-motor-speed motor-1)
      (clamp-motor-speed motor-2)
      (bit-or
