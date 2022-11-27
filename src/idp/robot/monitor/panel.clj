@@ -462,11 +462,8 @@
                         (swap! *robot-state
                           phase/init-phase-id-on-state phase-id)
                         (add-history text)
-                        (catch Exception _
-                          (println "Failed to set phase-id to" phase-id))))))]
-            (add-watch *state :listener
-              (fn [_ _ _ {:keys [text]}]
-                ))
+                        (catch Exception e
+                          (println "Failed to set phase-id to" phase-id e))))))]
             (ui/stack
               (ui/text-field *state)
               (ui/text-listener

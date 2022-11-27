@@ -1,6 +1,5 @@
 (ns idp.robot.brain.travel
   (:require
-    [idp.net.api :as api]
     [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
@@ -17,8 +16,8 @@
   :tick (fn [_] {:input (motor-input 0)}))
 
 (defn get-line-triggers
-  "Line trigger = number of times line sensor has encountered
-  a distinct white line since the last response."
+  "Line trigger = number of times line sensor has switched
+  from seeing black to seeing white since the last response."
   [{:keys [line-switches] :as readings}]
   (let [line-sensor-readings (robot.state/get-line-sensors readings)
         sensor-line-enters
@@ -212,13 +211,15 @@
              :input (motor-input forward-speed turn-speed)}))))))
 
 (defphase timed-forwards
-  "Move straight forwards for fixed amount of time at a given speed"
-  :init {:duration 0
-         :speed 200
-         :turn-speed 0
-         :time-elapsed 0}
+  "Move straight forwards (or backwards) for fixed amount of time at a given speed"
+  :init (fn [params]
+          {:duration (:duration params)
+           :speed 200
+           :turn-speed 0
+           :time-elapsed 0})
   :tick
-  (fn [{:keys [speed] :as state} readings]
+  (fn [{{:keys [speed] :as state} :state
+        :keys [readings]}]
     (let [time-elapsed (+ (:time-elapsed state)
                          (robot.state/get-active-dt readings))
           done? (<= (:duration state) time-elapsed)]
@@ -771,8 +772,6 @@
         (phase/mark-done {})
         cmd))))
 
-;; TODO transfer follow-intent for phase transitions
-
 (defphase post-ramp-turning
   :init {:sub-states
          {:turn (phase/get-initial-state tracking-motor-turn)}}
@@ -863,20 +862,17 @@
   (fn [{:keys [state readings]}]
     (let [sturn 120
           sturnf 170
-          [_ _ ls-right ls-far-right]
-          (robot.state/get-white-line-sensors readings)
           {:keys [line-triggers]} state
-          line-triggers (update-line-triggers line-triggers readings)
+          [_ _ ntriggers-right ntriggers-far-right
+           :as line-triggers] (update-line-triggers line-triggers readings)
           ;; done when right two sensors have encountered the line
-          done? (every? pos? (subvec line-triggers 0 2))]
+          done? (and (pos? ntriggers-right) (pos? ntriggers-far-right))]
       (if done?
         (phase/mark-done {})
-        {:state (cond-> {:line-triggers line-triggers}
-                  (not (or ls-far-right ls-right))
-                  (assoc :over-horiz? false))
+        {:state {:line-triggers line-triggers}
          :input (motor-input sturnf sturn)}))))
 
-(defphase exit-start
+(defphase exit-start-find-junction
   "Moves the robot out of the start box until the line sensors
   have found the junction.
   At least three line sensors should find a distinct white region twice."
@@ -897,11 +893,39 @@
        (and found-junction?
          (every? #(= % :black) (robot.state/get-line-sensors readings)))]
       (if done?
+        ;; FIXME do excess forwards movement instead
         (phase/mark-done
           {:readings {:line-switches [0 0 0 0]}})
         (let [speed sforward]
           {:state {:line-triggers line-triggers}
            :input (motor-input speed)})))))
+
+(defphase exit-start
+  :init {:status :find}
+  :sub-phases
+  {:find [exit-start-find-junction]
+   :excess [timed-forwards {:duration 200}]
+   :turn [exit-start-turn]}
+  :tick
+  (fn [{:keys [state] :as robot}]
+    (case (:status state)
+      :find
+      (let [cmd (phase/tick-subphase robot :find)]
+        (if (phase/phase-done? cmd :find)
+          (update cmd :state assoc :status :excess)
+          cmd))
+      :excess
+      (let [cmd (phase/tick-subphase robot :excess)]
+        (if (phase/phase-done? cmd :excess)
+          (update cmd :state assoc :status :turn)
+          cmd))
+      :turn
+      (let [cmd (phase/tick-subphase robot :turn)]
+        (if (phase/phase-done? cmd :turn)
+          (phase/mark-done cmd)
+          cmd)))))
+
+(phase/get-initial-state exit-start)
 
 (defn tick [{:keys [state] :as prev-robot}]
   (let [current-phase-id (:phase-id state)
@@ -945,3 +969,5 @@
                                      :input input})]
     (reset! *state state)
     input))
+
+;; TODO transfer follow-intent for phase transitions
