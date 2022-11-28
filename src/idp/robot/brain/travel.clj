@@ -13,7 +13,8 @@
 
 (defphase stop
   :init {}
-  :tick (fn [_] {:input (motor-input 0)}))
+  :tick (fn [_] {:input (assoc (motor-input 0)
+                          :signal-block-density nil)}))
 
 (defn get-line-triggers
   "Line trigger = number of times line sensor has switched
@@ -70,8 +71,10 @@
        (match combined-readings
          [_ :w :w _] [:straight]
          [:b :w :b :b] [:left 1]
+         [:w :w :b :b] [:left 2]
          [:w :b :b :b] [:left 3]
          [:b :b :w :b] [:right 1]
+         [:b :b :w :w] [:right 2]
          [:b :b :b :w] [:right 3]
          [:b :b :b :b]
          (match prev-intent
@@ -101,7 +104,6 @@
                             {:straight :straight
                              :left :right
                              :right :left})
-       
            ;; Calculate in terms of left bias
            swap? (case (:bias state) :right true :left false)
            prev-intent (cond-> (:follow-intent state [:straight])
@@ -109,31 +111,31 @@
            intent
            (match (cond-> combined-readings
                     swap? (-> rseq vec))
-             [ _ :w :w  _] [:straight]
-             [:b :w :b :b] [:left 2]
-             [:w  _ :b :b] [:left 3]
-             [:b :b :w :b] [:straight]
-             [ _  _ :w :w] [:straight]
-             [ _ :b :b :w] [:right 2]
+             [ _ :w :w :w] [:straight]
+             [:b :b :w  _] [:straight]
+             [ _ :w :w :b] [:left 1]
+             [ _ :w :b :b] [:left 2]
+             [:w :b :b :b] [:left 2]
+             [ _  _ :b :w] [:right 1]
              [:b :b :b :b]
              (match prev-intent
-               [:right 2] [:right 3]
-               [:right 1] [:right 3]
+               [:right 1] [:right 2]
                :else prev-intent)
              :else prev-intent)]
        (cond-> intent swap? mirror-intent)))})
 
 (defphase biased-follow
-  :init {:follow-intent [:continue]
-         :bias :left
-         :high-power? false}
+  :init (fn [{:keys [bias]}]
+          {:follow-intent [:continue]
+           :bias (enc/have #{:left :right} bias)
+           :high-power? false})
   :tick
   (fn [{:keys [state] :as robot}]
     (tick-common-follow robot
-      (assoc basic-follow-strategy :level-speeds
+      (assoc biased-follow-strategy :level-speeds
         (if (:high-power? state)
-          [[255 0] [255 30] [80 255] [0 255]]
-          [[255 0] [255 30] [80 150] [0 200]])))))
+          [[255 0] [255 30] [0 255]]
+          [[255 0] [255 30] [0 200]])))))
 
 (defphase straight-up-to-blackout
   "Goes straight until line no longer seen.
@@ -164,75 +166,108 @@
   :init {:follow-intent [:continue]
          :blackout-duration 0}
   :tick
-  (fn [{:keys [state readings]}]
+  (fn [{:keys [state readings] :as robot}]
     (let
       [min-blackouts-duration 400 ;; determines when phase is done (ms)
-       blackout-speed 50 ;; after first blackout, go slower
+       blackout-speed 150 ;; after first blackout, go slower
        combined-readings (get-combined-line-readings readings)
-       prev-intent (:follow-intent state)
-       intent
-       (match combined-readings
-         [_ :w :w _] [:straight]
-         [:b :w :b :b] [:left 1]
-         [:w _ :b :b] [:left 2]
-         [:b :b :w :b] [:right 1]
-         [:b :b _ :w] [:right 2]
-         [:b :b :b :b]
-         (match prev-intent
-           [:left 1]  [:straight]
-           [:left 2]  [:left 3]
-           [:right 1] [:straight]
-           [:right 2] [:right 3]
-           :else prev-intent)
-         :else prev-intent)]
-      (if (= [:continue] intent)
-        {}
-        (let [{:keys [blackout-duration]} state
-              max-fspeed (if (pos? blackout-duration) blackout-speed 255)
-              [forward-speed turn-speed]
-              (match intent
-                [:straight] [max-fspeed 0]
-                [left-or-right level]
-                (let [[forward turn]
-                      (case (int level)
-                        1 [(* max-fspeed 0.9) 30]
-                        2 [20 200]
-                        3 [0 250])]
-                  [forward
-                   (cond-> turn (= :left left-or-right) -)]))
-              done? (<= min-blackouts-duration blackout-duration)]
-          (if done?
-            (phase/mark-done {})
-            {:state {:follow-intent intent
-                     :blackout-duration
-                     (if (= [:b :b :b :b] combined-readings)
-                       (+ blackout-duration (robot.state/get-active-dt readings))
-                       0)}
-             :input (motor-input forward-speed turn-speed)}))))))
+       {:keys [blackout-duration]} state
+       max-fspeed (if (pos? blackout-duration) blackout-speed 255)
+       cmd (tick-common-follow robot
+             {:level-speeds [[max-fspeed 0]
+                            [(* max-fspeed 0.9) 30]
+                            [0 200]]
+              :intent-fn
+              (fn [state _readings]
+                (let [prev-intent (:follow-intent state)]
+                  (match combined-readings
+                    [_ :w :w _] [:straight]
+                    [:b :w :b :b] [:left 1]
+                    [:b :b :w :b] [:right 1]
+                    [:w _ :b :b] [:left 2]
+                    [:b :b _ :w] [:right 2]
+                    [:b :b :b :b]
+                    (match prev-intent
+                      [:left 1]  [:straight]
+                      [:right 1] [:straight]
+                      :else prev-intent)
+                    :else prev-intent)))})]
+      (if (<= min-blackouts-duration blackout-duration)
+        (phase/mark-done {})
+        (phase/merge-cmds cmd
+          {:state {:blackout-duration
+                   (if (= [:b :b :b :b] combined-readings)
+                     (+ blackout-duration (robot.state/get-active-dt readings))
+                     0)}})))))
 
 (defphase timed-forwards
   "Move straight forwards (or backwards) for fixed amount of time at a given speed"
   :init (fn [params]
           {:duration (:duration params)
-           :speed 200
+           :speed (:speed params 200)
            :turn-speed 0
            :time-elapsed 0})
   :tick
   (fn [{{:keys [speed] :as state} :state
         :keys [readings]}]
     (let [time-elapsed (+ (:time-elapsed state)
-                         (robot.state/get-active-dt readings))
-          done? (<= (:duration state) time-elapsed)]
-      (if done?
+                         (robot.state/get-active-dt readings))]
+      (if (<= (:duration state) time-elapsed)
         (phase/mark-done {})
         {:state {:time-elapsed time-elapsed}
          :input (motor-input speed (:turn-speed state))}))))
 
+(defn clamp-motor-speed [s]
+  (min 255 (max -255 (abs s))))
+
+(defn calc-motor-turn-amount
+  "Estimates, based on motor input, the amount by
+  which the robot has turned clockwise since previous response"
+  [{:keys [readings input]}]
+  (let [turn-speed (- (clamp-motor-speed (:motor-1 input))
+                     (clamp-motor-speed (:motor-2 input)))]
+    (* turn-speed (robot.state/get-active-dt readings))))
+
+(defn calc-motor-forward-amount
+  "Estimates, based on motor input, the amount by
+  which the robot has moved forwards since previous response"
+  [{:keys [readings input]}]
+  (let [speed (+ (clamp-motor-speed (:motor-1 input))
+                (clamp-motor-speed (:motor-2 input)))]
+    (* speed (robot.state/get-active-dt readings))))
+
+(defphase tracking-motor-turn
+  "Estimates, based on motor input, the amount by
+  which the robot has turned clockwise"
+  :init {:turn-amount 0}
+  :tick
+  (fn [{:keys [state] :as robot}]
+    {:state {:turn-amount (+ (:turn-amount state)
+                            (calc-motor-turn-amount robot))}}))
+
+(defphase tracking-motor-forward
+  "Estimates, based on motor input, the amount by
+  which the robot has moved forwards"
+  :init {:forward-amount 0}
+  :tick
+  (fn [{:keys [state] :as robot}]
+    {:state {:forward-amount (+ (:forward-amount state)
+                               (calc-motor-forward-amount robot))}}))
+
+(defphase tracking-active-duration
+  "Keeps track of how much time has passed while the robot is unpaused"
+  :init {:duration 0}
+  :tick
+  (fn [{:keys [state readings]}]
+    {:state {:duration (+ (:duration state)
+                         (robot.state/get-active-dt readings))}}))
+
 (defphase junction-turn-spin
   "Turn from one junction exit to another.
   At the end, line sensors should be centred on the line."
-  :init {:location :start-line ;; :start-line, :between, :end-line
-         :turn-direction :left}
+  :init (fn [{:keys [turn-direction]}]
+          {:location :start-line ;; :start-line, :between, :end-line
+           :turn-direction turn-direction})
   :tick
   (fn [{:keys [state readings]}]
     (let [forward-speed -30
@@ -263,6 +298,101 @@
         {:state {:location location}
          :input (motor-input forward-speed turn-speed)}))))
 
+(defphase until-straight
+  "Infers, based on motor input, when robot starts
+  going approximately straight"
+  :init (fn [params]
+          {:min-straight-duration (:min-straight-duration params 1000)})
+  :sub-phases
+  {:duration [tracking-active-duration]
+   :turn [tracking-motor-turn]}
+  :tick
+  (fn [{:keys [state] :as robot}]
+    (let [;; after this turn amount, restart timer
+          turn-amount-thres (long 6e4)
+          duration-cmd (phase/tick-subphase robot :duration)
+          duration (-> duration-cmd :state :sub-phases :duration :duration)
+          turn-cmd (phase/tick-subphase robot :turn)
+          turn-amount (-> turn-cmd :state :sub-phases :turn :turn-amount)
+          cmd (phase/merge-cmds turn-cmd duration-cmd)
+          reset? (<= turn-amount-thres (abs turn-amount))]
+      (cond
+        reset?
+        (-> cmd
+          (assoc-in [:state :sub-phases :duration :duration] 0)
+          (assoc-in [:state :sub-phases :turn :turn-amount] 0))
+        (<= (:min-straight-duration state) duration)
+        (phase/mark-done cmd)
+        :else
+        cmd))))
+
+(defphase tracking-motor-turn-rate
+  "Calculates the turn rate over a fixed duration
+  based on motor input"
+  :init (fn [params]
+          {:target-duration (:target-duration params 700) ;; ms
+           
+          :history (enc/queue)
+          :duration 0 ;; ms
+          :turn-amount 0
+          :turn-rate 0 ;; turn amount per active millisecond
+          })
+  :sub-phases
+  {:turn [tracking-motor-turn]}
+  :tick
+  (fn [{:keys [state readings] :as robot}]
+    (let [turn-cmd (phase/tick-subphase robot :turn)
+          Δturn-amount (-> turn-cmd :state :sub-phases :turn :turn-amount)
+          dt (long (robot.state/get-active-dt readings))
+          snapshot {:dt dt
+                    :turn-amount Δturn-amount}
+          duration (+ (:duration state) dt)
+          turn-amount (+ (:turn-amount state) Δturn-amount)
+          history (conj (:history state) snapshot)
+          {:keys [target-duration]} state
+          ;; Remove old snapshots
+          [history duration turn-amount]
+          (loop [history history
+                 duration duration
+                 turn-amount turn-amount]
+            (if (not-empty history)
+              (let [snapshot (peek history)
+                    duration' (- duration (:dt snapshot))]
+                (if (<= target-duration duration')
+                  (recur (pop history)
+                    duration'
+                    (- turn-amount (:turn-amount snapshot)))
+                  [history duration turn-amount]))
+              [history duration turn-amount]))
+          turn-rate (/ turn-amount (float duration))]
+      {:state {:turn-rate turn-rate
+               :history history
+               :duration duration
+               :turn-amount turn-amount}})))
+
+(defphase until-turning
+  "Infers, based on motor input, when robot starts turning"
+  :init
+  (fn [{:keys [turn-direction]}]
+    {:min-turn-rate 200 ;; turn amount per active millisecond
+     :turn-direction turn-direction})
+  :sub-phases
+  {:turn [tracking-motor-turn-rate {:target-duration 700}]}
+  :tick
+  (fn [{:keys [state readings] :as robot}]
+    (let [cmd (phase/tick-subphase robot :turn)
+          {:keys [turn-rate duration target-duration]}
+          (-> cmd :state :sub-phases :turn)
+          desired-direction? (case (:turn-direction state)
+                               :left (neg? turn-rate)
+                               :right (pos? turn-rate)
+                               :either true)]
+      (if (and (<= target-duration duration)
+            desired-direction?
+            (<= (:min-turn-rate state) (abs turn-rate)))
+        (phase/mark-done {})
+        cmd))))
+
 (defn reattempt-collection?
   "After dropping off block, decides whether to try collecting another
   block or to go back home"
@@ -276,6 +406,135 @@
   ;; FIXME
   false
   )
+
+(defphase box-approach-turn-spin
+  "Assume aligned with path, so that we can spin 90° to point
+  towards the box. Line sensors should be centred on the line."
+  :init (fn [{:keys [turn-direction]}]
+          (merge
+            (phase/get-initial-state junction-turn-spin)
+            {:turn-direction (enc/have #{:left :right} turn-direction)}))
+  :tick
+  (fn [{:keys [] :as robot}]
+    ((:tick-fn junction-turn-spin) robot)))
+
+(defphase box-approach-turn-excess
+  "Moves robot forwards, from position where line sensors are at the junction
+  path, to where the centre of rotation is approximately aligned with
+  the path of a box"
+  :init (fn [{:keys [turn-direction]}]
+          {:status :pre-align
+           :turn-direction turn-direction})
+  :sub-phases
+  (fn [{:keys [turn-direction]}]
+    {:forward-amount [tracking-motor-forward]
+     :follow [biased-follow {:bias (case turn-direction
+                                     :right :left
+                                     :left :right)}]})
+  :tick
+  (fn [{:keys [readings]
+        {:keys [status turn-direction]} :state
+        :as robot}]
+    (let [min-fwd-amount (long 10e5)
+          cmd (phase/tick-subphase robot :forward-amount)
+          forward-amount (-> cmd :state :sub-phases :forward-amount :forward-amount)]
+      (if (<= min-fwd-amount forward-amount)
+        (phase/mark-done {})
+        (phase/merge-cmds cmd
+          (phase/tick-subphase robot :follow)
+          (when (= :pre-align status)
+            ;; initially turn away from box a bit to avoid following the path up to it
+            (let [ls (get-combined-line-readings readings)
+                  nwhites (count (filterv #(= :w %) ls))
+                  aligned? (<= nwhites 1)]
+              ; (prn aligned? nwhites)
+              (if aligned?
+                {:state {:status :follow}}
+                {:input (motor-input 0 (cond-> 200 (= :right turn-direction) -))}))))))))
+
+(defphase box-approach-turn
+  :init {:status :excess}
+  :sub-phases
+  (fn [{:keys [turn-direction]}]
+    (enc/have? #{:left :right} turn-direction)
+    {:excess [box-approach-turn-excess {:turn-direction turn-direction}]
+     :spin [box-approach-turn-spin {:turn-direction turn-direction}]})
+  :tick
+  (fn [{:keys [state] :as robot}]
+    (case (:status state)
+      :excess
+      (let [cmd (phase/tick-subphase robot :excess)]
+        (if (phase/phase-done? cmd :excess)
+          (update cmd :state assoc :status :spin)
+          cmd))
+      :spin
+      (let [cmd (phase/tick-subphase robot :spin)]
+        (if (phase/phase-done? cmd :spin)
+          (phase/mark-done cmd)
+          cmd)))))
+
+(defphase up-to-box
+  "Goes from somewhere on the home-side main line up to one of the
+  three junctions of a line box.
+  Performs biased line following to ensure junction detection."
+  :init (fn [{:keys [box-number turn-direction]}]
+          {:box-number (enc/have #{1 2 3} box-number)
+           :on-junction? false
+           :nfinds 0
+           :turn-direction turn-direction})
+  :sub-phases
+  (fn [{:keys [turn-direction]}]
+    {:follow [biased-follow {:bias (enc/have #{:left :right} turn-direction)}]})
+  :tick
+  (fn [{:keys [state readings]
+        {:keys [turn-direction]} :state :as robot}]
+    (let [prev-on-junction? (:on-junction? state)
+          combined-line-readings (get-combined-line-readings readings)
+          ;; from perspective of turning right
+          normalised-ls (cond-> combined-line-readings
+                          (= :left (:turn-direction state))
+                          (-> rseq vec))
+          on-junction? (if prev-on-junction?
+                          (match normalised-ls
+                            [_ _ :b :b] false
+                            [:b :b :w :b] false
+                            :else true)
+                          (match normalised-ls
+                            [_ _ :w :w] true
+                            [:w :w :w _] true
+                            :else false))
+          nfinds (cond-> (:nfinds state) (and (not on-junction?)
+                                           (not= prev-on-junction? on-junction?)) inc)
+          target-box (:box-number state)
+          cmd (cond-> (phase/tick-subphase robot :follow)
+                ;; avoid following box path when at junction
+                on-junction?
+                (phase/merge-cmds
+                  {:input (motor-input 180 (cond-> 80 (= :right turn-direction) -))}))]
+      (if (<= target-box nfinds)
+        (phase/mark-done cmd)
+        (phase/merge-cmds
+          cmd
+          {:state {:on-junction? on-junction?
+                   :nfinds nfinds}})))))
+
+(defphase up-to-dropoff-box
+  "Goes from tunnel up to one of the three junctions of a line box.
+  Performs right-biased line following to ensure junction detection."
+  :init {}
+  :sub-phases
+  (fn [{:keys [density]}]
+    {:find-box [up-to-box {:box-number (case density
+                                         :high 3 ;; red box
+                                         :low 1 ;; green box
+                                         (throw (ex-info "No density!" {})))
+                           :turn-direction :right}]})
+  :tick
+  (fn [{:keys [] :as robot}]
+    (let [cmd (phase/tick-subphase robot :find-box)]
+      (if (phase/phase-done? cmd :find-box)
+        (phase/mark-done cmd)
+        cmd))))
 
 #_(defphase align-to-home
   "Takes a robot on the home path up to the edge of the home box,
@@ -295,166 +554,94 @@
 (defphase up-to-home-entry
   "Drives robot from a collection point up to the home junction,
   then spins it pointing towards the home box"
-  :init
-  (fn [prev-state]
-    {:sub-status :straight
-     :sub-states
-     {:biased-follow (assoc (phase/get-initial-state biased-follow)
-                       :bias (if (= :high (:density prev-state))
-                               :left
-                               :right))
-      :timed-forwards (assoc (phase/get-initial-state timed-forwards)
-                        :duration 1700)
-      :spin (assoc (phase/get-initial-state junction-turn-spin)
-              :turn-direction (if (= :high (:density prev-state))
-                                :left
-                                :right))}})
+  :init {:status :find-turn}
+  :sub-phases
+  (fn [{:keys [density]}]
+    (let [turn-direction (case density
+                           :high :left
+                           :low :right)]
+      {:find-turn [up-to-box {:turn-direction turn-direction
+                              :box-number 1}]
+       :turn [box-approach-turn {:turn-direction turn-direction}]}))
   :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
-      :straight
-      (let [cmd (phase/tick-nested biased-follow :biased-follow
-                  state readings)
-            junction-found?
-            (match (get-combined-line-readings readings)
-              [_ :w :w :w] true
-              [:w :w :w _] true
-              :else false)]
-        (if junction-found?
-          (update cmd :state assoc
-            :sub-status :excess)
+  (fn [{:keys [state] :as robot}]
+    (case (:status state)
+      :find-turn
+      (let [cmd (phase/tick-subphase robot :find-turn)]
+        (if (phase/phase-done? cmd :find-turn)
+          (phase/merge-cmds cmd
+            {:state {:status :turn}})
           cmd))
-      :excess
-      (let [cmd (phase/tick-nested timed-forwards :timed-forwards state readings)]
-        (if (phase/phase-done? cmd :timed-forwards)
-          (update cmd :state assoc
-            :sub-status :turning)
-          cmd))
-      :turning
-      (let [cmd (phase/tick-nested junction-turn-spin :spin
-                  state readings)]
-        (if (phase/phase-done? cmd :spin)
+      :turn
+      (let [cmd (phase/tick-subphase robot :turn)]
+        (if (phase/phase-done? cmd :turn)
           (phase/mark-done cmd)
           cmd)))))
 
 (defphase backup-from-box
   "Reverse from dropping off block at box"
-  :init (merge (phase/get-initial-state timed-forwards)
-          {:sub-status :retreating})
+  :init {:status :blackout-retreating}
+  :sub-phases
+  {:straight [timed-forwards {:duration 1200
+                              :speed -255}]
+   :turn [junction-turn-spin]}
   :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
+  (fn [{:keys [state readings merged-state] :as robot}]
+    (case (:status state)
+      :blackout-retreating
+      (let [ls (get-combined-line-readings readings)]
+        (if (match ls
+              [_ :w _ _] true
+              [_ _ :w _] true
+              :else false)
+          {:input (motor-input -255)}
+          {:state {:status :retreating}}))
       :retreating
-      (let [cmd ((:tick-fn timed-forwards)
-                 (assoc state
-                   :duration 1500
-                   :speed -200)
-                 readings)]
-        (if (phase/phase-done? cmd)
-          (let [cmd (update cmd :state merge
-                      {:phase-id (:phase-id state)
-                       :sub-status :turning}
-                      (phase/get-initial-state junction-turn-spin))
-                home-direction (if (= :high (:density state))
-                                 :right :left)
-                block-direction :left]
-            (if (reattempt-collection? state)
-              (update cmd :state
-                (fn [state2]
-                  (-> state2
-                    (assoc :turn-direction block-direction)
-                    (assoc :go-home? false))))
-              (update cmd :state
-                (fn [state2]
-                  (-> state2
-                    (assoc :turn-direction home-direction)
-                    (assoc :go-home? true))))))
+      (let [cmd (phase/tick-subphase robot :straight)]
+        (if (phase/phase-done? cmd :straight)
+          (let [home-direction (case (:density merged-state)
+                                 :high :right
+                                 :low :left)
+                block-direction :left
+                [go-home? turn-direction]
+                (if (reattempt-collection? merged-state)
+                  [false block-direction]
+                  [true home-direction])]
+            (phase/merge-cmds cmd
+              {:state {:status :turning
+                       :sub-phases
+                       {:turn {:turn-direction turn-direction}}}
+               :output {:go-home? go-home?}}))
           cmd))
       :turning
-      (let [cmd ((:tick-fn junction-turn-spin) state readings)]
-        (if (phase/phase-done? cmd)
-          (update cmd :state assoc :phase-id
-            ((:next-phase-map state {})
-             [:backup-from-box
-              {:go-home? (:go-home? state)}]))
+      (let [cmd (phase/tick-subphase robot :turn)]
+        (if (phase/phase-done? cmd :turn)
+          (phase/mark-done cmd)
           cmd)))
     ))
 
 (defphase box-approach-edge
   "Go up to edge of box"
-  :init (merge
-          (phase/get-initial-state straight-up-to-blackout)
-          {:turn-direction :right
-           :sub-status :up-to-line})
+  :init {:status :up-to-line}
+  :sub-phases
+  {:follow [straight-up-to-blackout]
+   :excess [timed-forwards {:duration 300}]}
   :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
+  (fn [{:keys [state] :as robot}]
+    (case (:status state)
       :up-to-line
-      (let [cmd (assoc-in ((:tick-fn straight-up-to-blackout) state readings)
-                  [:input :grabber-position] :open)]
-        (if (phase/phase-done? cmd)
-          (update cmd :state merge
-            (phase/get-initial-state timed-forwards)
-            {:phase-id (:phase-id state)
-             :sub-status :excess})
+      (let [cmd (phase/merge-cmds
+                  (phase/tick-subphase robot :follow)
+                  {:input {:grabber-position :open}})]
+        (if (phase/phase-done? cmd :follow)
+          (phase/merge-cmds cmd
+            {:state {:status :excess}})
           cmd))
       :excess
-      ((:tick-fn timed-forwards)
-       (assoc state :duration 300)
-       readings))))
-
-(defphase box-approach-turn-spin
-  "Assume aligned with path, so that we can spin 90° to point
-  towards the box. Line sensors should be centred on the line."
-  :init (merge
-          (phase/get-initial-state junction-turn-spin)
-          {:turn-direction :right})
-  :tick
-  (fn [{:keys [state readings]}]
-    ((:tick-fn junction-turn-spin) state readings)))
-
-(defphase box-approach-turn
-  "Turns robot from main loop to be approximately aligned with
-  the path of a box"
-  :init (merge (phase/get-initial-state timed-forwards)
-          {:time-elapsed 0})
-  :tick
-  (fn [{:keys [state readings]}]
-    (let [straight-duration 1700
-          time-elapsed (+ (:time-elapsed state)
-                         (robot.state/get-active-dt readings))
-          done? (<= straight-duration time-elapsed)]
-      (if done?
-        (phase/mark-done {})
-        (assoc-in ((:tick-fn basic-follow) state readings)
-          [:state :time-elapsed] time-elapsed)))))
-
-(defphase up-to-box
-  "Goes from tunnel up to one of the three junctions of a line box.
-  Performs right-biased line following to ensure junction detection."
-  :init {:density :low
-         :nfinds 0
-         :bias :right}
-  :tick
-  (fn [{:keys [state readings]}]
-    (let [combined-line-readings (get-combined-line-readings readings)
-          found-junction? (when (not= combined-line-readings
-                                  (:combined-line-readings state))
-                            (match combined-line-readings
-                              [ _ :w :w :w] true
-                              :else false))
-          nfinds (cond-> (:nfinds state) found-junction? inc)
-          target-box (case (:density state)
-                       :high 3 ;; red box
-                       :low 1 ;; green box
-                       (throw (ex-info "No density!" {})))
-          done? (<= target-box nfinds)]
-      (if done?
-        (phase/mark-done {})
-        (phase/merge-cmds
-          {:state {:combined-line-readings combined-line-readings
-                   :nfinds nfinds}}
-          ((:tick-fn biased-follow) state readings))))))
+      (let [cmd (phase/tick-subphase robot :excess)]
+        (if (phase/phase-done? cmd :excess)
+          (phase/mark-done cmd)
+          cmd)))))
 
 (defphase through-tunnel
   "Waits until refinding the line.
@@ -489,22 +676,20 @@
   :tick #((:tick-fn follow-up-to-blackout) %))
 
 (defphase centre-block-180
-  :init {:nturns 0
-         :sub-states
-         {:turn1 (assoc (phase/get-initial-state timed-forwards)
-                   :duration 2000
-                   :speed 0
-                   :turn-speed 200)
-          :turn2 (assoc (phase/get-initial-state junction-turn-spin)
-                   :turn-direction :right)}}
+  :init {:nturns 0}
+  :sub-phases
+  {:turn1 [timed-forwards nil {:duration 2000
+                               :speed 0
+                               :turn-speed 200}]
+   :turn2 [junction-turn-spin nil {:turn-direction :right}]}
   :tick
-  (fn [{:keys [state readings]}]
+  (fn [{:keys [state] :as robot}]
     (let [nturns (:nturns state)
           first? (= 0 nturns)
           ss (if first? :turn1 :turn2)
           cmd (if first?
-                (phase/tick-nested timed-forwards :turn1 state readings)
-                (phase/tick-nested junction-turn-spin :turn2 state readings))]
+                (phase/tick-subphase robot :turn1)
+                (phase/tick-subphase robot :turn2))]
       (if (phase/phase-done? cmd ss)
         (if first?
           (update cmd :state assoc :nturns (inc nturns))
@@ -512,91 +697,83 @@
         cmd))))
 
 (defphase signal-block-density
-  :init (fn [prev]
-          {:density (:density prev :high)
+  :init (fn [params]
+          {:density (:density params :high)
            :time-elapsed 0})
   :tick
   (fn [{:keys [state readings]}]
     (let [signal-duration 5000
           time-elapsed (+ (:time-elapsed state)
-                         (robot.state/get-active-dt readings))
-          done? (<= signal-duration time-elapsed)]
-      (if done?
+                         (robot.state/get-active-dt readings))]
+      (if (<= signal-duration time-elapsed)
         (phase/mark-done
           {:input {:signal-block-density nil}})
         {:state {:time-elapsed time-elapsed}
-         :input {:signal-block-density (:density state)
-                 :motor-1 0 :motor-2 0}}))))
+         :input {:signal-block-density (:density state)}}))))
 
-(defphase tick-position-grabber
-  :init {:started? false
-         :grabber-position :closed}
+(defphase position-grabber
+  :init (fn [{:keys [grabber-position]}]
+          {:started? false
+           :grabber-position grabber-position})
   :tick
   (fn [{:keys [state readings]}]
     (let [input {:grabber-position (:grabber-position state)}]
       (if (:started? state)
-        (let [done? (not (:grabber-moving? readings))]
-          (if done?
-            (phase/mark-done {})
-            {:input input}))
+        (if (not (:grabber-moving? readings))
+          (phase/mark-done {})
+          {:input input})
         {:state {:started? true}
          :input input}))))
-
-(defphase stationary-open-grabber
-  :init (assoc (phase/get-initial-state tick-position-grabber)
-          :grabber-position :open)
-  :tick (fn [{:keys [state readings]}]
-          ((:tick-fn tick-position-grabber) state readings)))
 
 (defphase detect-block
   "Closes grabber, determines density, and signals the density.
   The grabber remains closed."
-  :init (merge
-          {:sub-status :pushing
-           :sub-states {:pushing (assoc (phase/get-initial-state timed-forwards)
-                                   :duration 500)}}
-          (phase/get-initial-state tick-position-grabber))
+  :init {:status :pushing}
+  :sub-phases
+  {:position-grabber [position-grabber {:grabber-position :closed}]
+   :pushing [timed-forwards {:duration 500}]
+   :signal-block-density [signal-block-density]}
   :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
+  (fn [{:keys [state readings] :as robot}]
+    (case (:status state)
       :pushing
-      (let [cmd (phase/tick-nested timed-forwards :pushing state readings)]
+      (let [cmd (phase/tick-subphase robot :pushing)]
         (if (phase/phase-done? cmd :pushing)
-          {:state {:sub-status :closing}
+          {:state {:status :closing}
            :input (motor-input 0)}
-          cmd))
+          (assoc-in cmd [:input :signal-block-density] nil)))
       :closing
-      (let [r ((:tick-fn tick-position-grabber)
-               (assoc state :grabber-position :closed)
-               readings)]
-        (if (phase/phase-done? r)
-          {:state {:sub-status :detect}}
-          r))
+      (let [cmd (phase/tick-subphase robot :position-grabber)]
+        (if (phase/phase-done? cmd  :position-grabber)
+          {:state {:status :detect}}
+          cmd))
       :detect
       (let [density (:block-density readings)]
-        {:state (merge (phase/get-initial-state signal-block-density)
-                  {:density density
-                   :sub-status :done-detect})})
+        {:state {:status :done-detect
+                 :sub-phases
+                 {:signal-block-density
+                  {:density density}}}
+         :output {:density density}})
       :done-detect
-      ((:tick-fn signal-block-density) state readings))))
+      (let [cmd (phase/tick-subphase robot :signal-block-density)]
+        (if (phase/phase-done? cmd :signal-block-density)
+          (phase/mark-done cmd)
+          cmd)))))
 
-(defphase start-to-centre-block
+(defphase post-ramp-to-centre-block
   "Does left-biased line following up to central collection point.
   Conditions for stop:
   - Find the first collection junction (left turn, three line sensors)
   - Find the centre junction (three line sensors trigger on each side)"
   :init
-  (fn [prev]
-    {:rhs-lines-found 0
-     :lhs-lines-found 0
-     :sub-states {:biased-follow (assoc (phase/get-initial-state biased-follow)
-                                   :high-power? false
-                                   :bias (:bias prev))}})
+  {:rhs-lines-found 0
+   :lhs-lines-found 0}
+  :sub-phases
+  {:follow [biased-follow {:bias :left}]}
   :tick
   (fn [{:keys [state readings] :as robot}]
     (let [combined-readings (get-combined-line-readings readings)
-          cmd (phase/tick-nested biased-follow
-                :biased-follow robot)
+          cmd (phase/tick-subphase robot :follow)
           cmd (phase/merge-cmds {:state state} cmd)
           cmd
           (if (= combined-readings
@@ -614,245 +791,94 @@
               :else
               cmd))
           state (:state cmd)
-          found-first-collection-junction?
-          (<= 1 (:lhs-lines-found state))
-          ; found-centre-collection-junction?
-          ; (and (<= 1 (:rhs-lines-found state))
-          ;   (<= 2 (:lhs-lines-found state)))
-          done? (or ;found-centre-collection-junction?
-                  (and found-first-collection-junction?
-                    (:block-present? readings)))]
+          done? (and (<= 1 (:rhs-lines-found state))
+                  (or (<= 2 (:lhs-lines-found state))
+                    (and (<= 1 (:lhs-lines-found state))
+                      (:block-present? readings))))]
       (if done?
         (phase/mark-done {})
         (assoc-in cmd [:state :combined-line-readings]
           combined-readings)))))
 
-(defphase start-to-centre-block-tunnel
-  :init
-  {:sub-status :tunnel-approach
-   :sub-states {:tunnel-approach (phase/get-initial-state tunnel-approach)
-                :tunnel (phase/get-initial-state through-tunnel)
-                :to-centre (phase/get-initial-state start-to-centre-block
-                             {:bias :right})}}
-  :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
-      :tunnel-approach
-      (let [cmd (phase/tick-nested tunnel-approach :tunnel-approach state readings)]
-        (if (phase/phase-done? cmd :tunnel-approach)
-          (update cmd :state assoc :sub-status :tunnel)
-          cmd))
-      :tunnel
-      (let [cmd (phase/tick-nested through-tunnel :tunnel state readings)]
-        (if (phase/phase-done? cmd :tunnel)
-          (update cmd :state assoc :sub-status :to-centre)
-          cmd))
-      :to-centre
-      (let [cmd (phase/tick-nested start-to-centre-block :to-centre state readings)]
-        (if (phase/phase-done? cmd :to-centre)
-          (update cmd :state assoc :phase-id
-            ((:next-phase-map state {}) [(:phase-id state)]))
-          cmd)))))
-
-(defn calc-motor-turn-amount
-  "Estimates, based on motor input, the amount by
-  which the robot has turned clockwise since previous response"
-  [{:keys [readings input]}]
-  (let [turn-speed (- (:motor-1 input) (:motor-2 input))]
-    (* turn-speed (robot.state/get-active-dt readings))))
-
-(defphase tracking-motor-turn
-  "Estimates, based on motor input, the amount by
-  which the robot has turned clockwise"
-  :init {:turn-amount 0}
-  :tick
-  (fn [{:keys [state] :as robot}]
-    {:state {:turn-amount (+ (:turn-amount state)
-                            (calc-motor-turn-amount robot))}}))
-
-(defphase tracking-active-duration
-  "Keeps track of how much time has passed while the robot is unpaused"
-  :init {:duration 0}
-  :tick
-  (fn [{:keys [state readings]}]
-    {:state {:duration (+ (:duration state)
-                         (robot.state/get-active-dt readings))}}))
-
-(defphase until-straight
-  "Infers, based on motor input, when robot starts
-  going approximately straight"
-  :init {:min-straight-duration 1000
-         :sub-states
-         {:duration (phase/get-initial-state tracking-active-duration)
-          :turn (phase/get-initial-state tracking-motor-turn)}}
-  :tick
-  (fn [{:keys [state] :as robot}]
-    (let [;; after this turn amount, restart timer
-          turn-amount-thres (long 6e4)
-          duration-cmd (phase/tick-nested tracking-active-duration
-                         :duration robot)
-          duration (-> duration-cmd :state :sub-states :duration :duration)
-          turn-cmd (phase/tick-nested tracking-motor-turn :turn robot)
-          turn-amount (-> turn-cmd :state :sub-states :turn :turn-amount)
-          cmd (phase/merge-cmds turn-cmd duration-cmd)
-          reset? (<= turn-amount-thres (abs turn-amount))]
-      (cond
-        reset?
-        (-> cmd
-          (assoc-in [:state :sub-states :duration :duration] 0)
-          (assoc-in [:state :sub-states :turn :turn-amount] 0))
-        (<= (:min-straight-duration state) duration)
-        (phase/mark-done cmd)
-        :else
-        cmd))))
-
-(defphase tracking-motor-turn-rate
-  "Calculates the turn rate over a fixed duration
-  based on motor input"
-  :init {:target-duration 700 ;; ms
-         
-         :history (enc/queue)
-         :duration 0 ;; ms
-         :turn-amount 0
-         :turn-rate 0 ;; turn amount per active millisecond
-         :sub-states
-         {:turn (phase/get-initial-state tracking-motor-turn)}}
-  :tick
-  (fn [{:keys [state readings] :as robot}]
-    (let [turn-cmd (phase/tick-nested tracking-motor-turn :turn robot)
-          Δturn-amount (-> turn-cmd :state :sub-states :turn :turn-amount)
-          dt (long (robot.state/get-active-dt readings))
-          snapshot {:dt dt
-                    :turn-amount Δturn-amount}
-          duration (+ (:duration state) dt)
-          turn-amount (+ (:turn-amount state) Δturn-amount)
-          history (conj (:history state) snapshot)
-          {:keys [target-duration]} state
-          ;; Remove old snapshots
-          [history duration turn-amount]
-          (loop [history history
-                 duration duration
-                 turn-amount turn-amount]
-            (if (not-empty history)
-              (let [snapshot (peek history)
-                    duration' (- duration (:dt snapshot))]
-                (if (<= target-duration duration')
-                  (recur (pop history)
-                    duration'
-                    (- turn-amount (:turn-amount snapshot)))
-                  [history duration turn-amount]))
-              [history duration turn-amount]))
-          turn-rate (/ turn-amount (float duration))]
-      {:state {:turn-rate turn-rate
-               :history history
-               :duration duration
-               :turn-amount turn-amount}})))
-
-(defphase until-turning
-  "Infers, based on motor input, when robot starts turning"
-  :init
-  (fn [{:keys [turn-direction]}]
-    {:min-turn-rate 200 ;; turn amount per active millisecond
-     :turn-direction turn-direction
-     :sub-states
-     {:turn (assoc (phase/get-initial-state tracking-motor-turn-rate)
-              :target-duration 700)}})
-  :tick
-  (fn [{:keys [state readings] :as robot}]
-    (let [cmd (phase/tick-nested tracking-motor-turn-rate :turn robot)
-          {:keys [turn-rate duration target-duration]}
-          (-> cmd :state :sub-states :turn)
-          desired-direction? (case (:turn-direction state)
-                               :left (neg? turn-rate)
-                               :right (pos? turn-rate)
-                               :either true)]
-      (if (and (<= target-duration duration)
-            desired-direction?
-            (<= (:min-turn-rate state) (abs turn-rate)))
-        (phase/mark-done {})
-        cmd))))
-
 (defphase post-ramp-turning
-  :init {:sub-states
-         {:turn (phase/get-initial-state tracking-motor-turn)}}
+  :init {}
+  :sub-phases
+  {:turn [tracking-motor-turn]}
   :tick
   (fn [{:as robot}]
     (let [;; after this turn amount, we have turned enough
           turn-amount-thres (long 1e6)
-          turn-cmd (phase/tick-nested tracking-motor-turn :turn robot)
-          done? (<= (-> turn-cmd :state :sub-states :turn :turn-amount)
+          turn-cmd (phase/tick-subphase robot :turn)
+          done? (<= (-> turn-cmd :state :sub-phases :turn :turn-amount)
                   (- turn-amount-thres))]
       (if done?
         (phase/mark-done {})
         turn-cmd))))
 
 (defphase post-ramp-find-junction
-  :init {:sub-status :find-turn
-         :sub-states
-         {:until-turning (phase/get-initial-state until-turning
-                           {:turn-direction :left})
-          :turning (phase/get-initial-state post-ramp-turning)
-          :follow (assoc (phase/get-initial-state basic-follow)
-                    :high-power? true)}}
+  :init {:status :find-turn}
+  :sub-phases
+  {:until-turning [until-turning {:turn-direction :left}]
+   :turning [post-ramp-turning]
+   :follow [basic-follow nil {:high-power? true}]}
   :tick
   (fn [{:keys [state reinit?] :as robot}]
-    (case (:sub-status state)
+    (case (:status state)
       :find-turn
-      (let [ut-cmd (phase/tick-nested until-turning :until-turning robot)]
+      (let [ut-cmd (phase/tick-subphase robot :until-turning)]
         (if (phase/phase-done? ut-cmd :until-turning)
           (recur (assoc robot
                    :reinit? true
                    :state
                    (-> state
-                     (assoc :sub-status :turning)
-                     (assoc-in [:sub-states :follow :high-power?] false))))
+                     (assoc :status :turning)
+                     (assoc-in [:sub-phases :follow :high-power?] false))))
           (phase/merge-cmds ut-cmd
-            (phase/tick-nested basic-follow :follow robot))))
+            (phase/tick-subphase robot :follow))))
       :turning
-      (let [cmd (phase/tick-nested post-ramp-turning :turning robot)]
+      (let [cmd (phase/tick-subphase robot :turning)]
         (if (phase/phase-done? cmd :turning)
           (phase/mark-done {})
           (phase/merge-cmds
             (when reinit? {:state state})
             cmd
-            (phase/tick-nested basic-follow :follow robot)))))))
+            (phase/tick-subphase robot :follow)))))))
 
 (defphase up-to-ramp
   "Drives robot (pointed right) from home side of the table
   up to the ramp, then travelling a significant straight distance across it"
   :init
-  {:sub-status :find-turn
-   :sub-states
-   {:follow (phase/get-initial-state basic-follow)
-    :turn (phase/get-initial-state tracking-motor-turn)
-    :until-straight (assoc (phase/get-initial-state until-straight)
-                      :min-straight-duration 3000)}}
+  {:status :find-turn}
+  :sub-phases
+  {:follow [basic-follow]
+   :turn [tracking-motor-turn]
+   :until-straight [until-straight {:min-straight-duration 3000}]}
   :tick
   (fn [{:keys [state reinit?] :as robot}]
-    (case (:sub-status state)
+    (case (:status state)
       :find-turn
       (let [;; after this turn amount, we have turned enough
             turn-amount-thres (long 1e6)
-            turn-cmd (phase/tick-nested tracking-motor-turn :turn robot)
-            done? (<= (-> turn-cmd :state :sub-states :turn :turn-amount)
+            turn-cmd (phase/tick-subphase robot :turn)
+            done? (<= (-> turn-cmd :state :sub-phases :turn :turn-amount)
                     (- turn-amount-thres))]
         (if done?
           (recur (assoc robot
                    :reinit? true
                    :state
                    (-> state
-                     (assoc :sub-status :straightening)
-                     (assoc-in [:sub-states :follow :high-power?] true))))
+                     (assoc :status :straightening)
+                     (assoc-in [:sub-phases :follow :high-power?] true))))
           (phase/merge-cmds turn-cmd
-            (phase/tick-nested basic-follow :follow robot))))
+            (phase/tick-subphase robot :follow))))
       :straightening
-      (let [straight-cmd (phase/tick-nested until-straight :until-straight robot)]
+      (let [straight-cmd (phase/tick-subphase robot :until-straight)]
         (if (phase/phase-done? straight-cmd :until-straight)
           (phase/mark-done {})
           (phase/merge-cmds
             (when reinit? {:state state})
             straight-cmd
-            (phase/tick-nested basic-follow :follow robot)))))))
+            (phase/tick-subphase robot :follow)))))))
 
 (defphase exit-start-turn
   "Once at the start junction, turn 90° in preparation for
@@ -876,8 +902,7 @@
   "Moves the robot out of the start box until the line sensors
   have found the junction.
   At least three line sensors should find a distinct white region twice."
-  :init {:line-triggers [0 0 0 0]
-         :competition-start-time (System/currentTimeMillis)}
+  :init {:line-triggers [0 0 0 0]}
   :tick
   (fn [{:keys [state readings]}]
     (let
@@ -925,49 +950,76 @@
           (phase/mark-done cmd)
           cmd)))))
 
-(phase/get-initial-state exit-start)
+(defphase full-run
+  :init (fn [{:keys [id]}]
+          {:nest {:current-id (or id :exit-start)
+                  :next-phase-map
+                  {:exit-start :up-to-ramp
+                   :up-to-ramp :post-ramp-find-junction
+                   :post-ramp-find-junction :post-ramp-to-centre-block
+                   :post-ramp-to-centre-block :detect-block
+                   :detect-block :tunnel-approach
+                   :tunnel-approach :through-tunnel
+                   :through-tunnel :up-to-dropoff-box
+                   :up-to-dropoff-box [:box-approach-turn {:turn-direction :right}]
+                   :box-approach-turn :box-approach-edge
+                   :box-approach-edge :backup-from-box}}})
+  :tick
+  (fn [{:keys [] :as robot}]
+    (let [{{:keys [density go-home?]} :output
+           :as cmd} (phase/tick-mapped-phase-group robot :nest)]
+      (cond-> cmd
+        density
+        (assoc-in [:state :density] density)
+        (some? go-home?)
+        (assoc-in [:state :go-home?] go-home?)
+        (some? go-home?)
+        (update-in [:state :nest :next-phase-map] merge
+          (if go-home?
+            {:backup-from-box :up-to-home-entry}
+            {:backup-from-box :up-to-ramp}))))))
 
-(defn tick [{:keys [state] :as prev-robot}]
+(defn tick [{:keys [state global-state merged-state parent-phases] :as prev-robot}]
   (let [current-phase-id (:phase-id state)
         _ (when (nil? current-phase-id)
             (throw (ex-info "Phase is nil"
-                     {:state (select-keys state
-                               [:parent-phases :phase-id])})))
+                     {:state (select-keys state [:phase-id])})))
         current-phase (phase/lookup-phase current-phase-id)
-        tick-fn (:tick-fn current-phase)
-        cmd (tick-fn prev-robot)
+        cmd ((:tick-fn current-phase)
+             (assoc prev-robot :merged-state (merge merged-state state)))
         cmd (phase/merge-cmds prev-robot cmd)
         {state2 :state} cmd
         next-phase-id (if (phase/phase-done? cmd)
-                        ((:next-phase-map state2 {})
+                        ((:next-phase-map global-state {})
                          current-phase-id)
                         (:phase-id state2 current-phase-id))
         next-phase-id (or next-phase-id :stop)
-        next-phase (phase/lookup-phase next-phase-id)
-        parent-phases (:parent-phases state #{})]
+        next-phase (phase/lookup-phase next-phase-id)]
     (cond
       (contains? parent-phases next-phase-id)
       (throw (ex-info "Circular phase reference"
                {:current-phase current-phase
                 :next-phase next-phase
                 :parent-phases parent-phases
-                :next-phase-map (:next-phase-map state2)}))
+                :next-phase-map (:next-phase-map global-state)}))
       ;; if transitioning to a new phase, run it immediately
       (not= current-phase-id next-phase-id)
-      (recur
-        (assoc cmd :state
-          (-> state2
-            (assoc :parent-phases (conj parent-phases current-phase-id))
-            (phase/initialise-phase-on-state next-phase))))
+      (do (println "Transition: " current-phase-id " -> " next-phase-id)
+        (recur
+          (assoc cmd :state
+            (-> state2
+              (assoc :parent-phases (conj parent-phases current-phase-id))
+              (phase/initialise-phase-on-state next-phase)))))
       :else
       (update cmd :state dissoc :parent-phases))))
 
 (defn tick! [*state readings input]
   (let [prev-state @*state
-        {:keys [input state]} (tick {:state prev-state
-                                     :readings readings
-                                     :input input})]
-    (reset! *state state)
+        {:keys [input state]}
+        (tick {:state (:phase prev-state)
+               :global-state (select-keys prev-state [:next-phase-map])
+               :merged-state prev-state
+               :readings readings
+               :input input})]
+    (reset! *state (assoc prev-state :phase state))
     input))
-
-;; TODO transfer follow-intent for phase transitions

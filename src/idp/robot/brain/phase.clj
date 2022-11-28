@@ -45,9 +45,10 @@
                          (str "Phase-id: " (:id phase)
                            "\ngot: " (pr-str m)
                            "\nFor params: " (pr-str params)))))
-             (fn [[phase params]]
+             (fn [[phase params merged-state]]
                (merge (get-initial-state phase params)
-                 {:phase-id (:id phase)}))))]
+                 {:phase-id (:id phase)}
+                 merged-state))))]
      (cond-> state
        subphases
        (assoc :sub-phases subphases)))))
@@ -104,7 +105,9 @@
         sub-state (-> sub-phases nest-key)
         _ (assert (map? sub-state))
         nested-cmd ((:tick-fn (lookup-phase (:phase-id sub-state)))
-                    (assoc robot :state sub-state))]
+                    (assoc robot
+                      :state sub-state
+                      :merged-state (merge (:merged-state robot) sub-state)))]
     (update nested-cmd :state
       (fn [sub-state2]
         {:sub-phases
@@ -123,3 +126,48 @@
    (reduce merge-cmds
      (merge-cmds cmd1 cmd2)
      cmds)))
+
+(defn tick-mapped-phase-group [robot state-key]
+  (let [parent-state (:state robot)
+        {:keys [current-id phases next-phase-map]}
+        (state-key parent-state)
+        substate1 (current-id phases)
+        current-phase-id (:phase-id substate1 current-id)
+        current-phase (lookup-phase current-phase-id)
+        merged-state (:merged-state robot)
+        init-state
+        (when (nil? substate1)
+          (assoc (get-initial-state current-phase merged-state)
+            :phase-id current-phase-id))
+        state (merge substate1 init-state)
+        {substate2 :state
+         :as cmd} ((:tick-fn current-phase)
+                   (assoc robot
+                     :state state
+                     :merged-state (merge merged-state state)))
+        substate2 (merge-states init-state substate2)
+        next-phase-id (or (if (phase-done? cmd)
+                            (next-phase-map current-phase-id)
+                            current-phase-id)
+                        :stop)
+        [next-phase-id merged-state]
+        (if (vector? next-phase-id)
+          [(nth next-phase-id 0)
+           (merge merged-state (nth next-phase-id 1))]
+          [next-phase-id merged-state])
+        state2 (update-in parent-state
+                 [state-key :phases current-id] merge-states substate2)
+        cmd (merge-cmds robot (assoc cmd :state state2))]
+    (cond
+      ;; if transitioning to a new phase, run it immediately
+      (not= current-phase-id next-phase-id)
+      (do
+        (println "Transition: " current-phase-id " -> " next-phase-id)
+        (recur
+          (-> cmd
+            (assoc :merged-state merged-state)
+            (assoc-in [:state state-key :current-id] next-phase-id)
+            (update-in [:state state-key :phases] dissoc current-id))
+          state-key))
+      :else
+      cmd)))

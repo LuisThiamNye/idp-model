@@ -73,8 +73,7 @@
   (hash @sim.client/*client)
   
   (swap! (:*state active-robot) assoc :next-phase-map
-    {:exit-start :exit-start-turn
-     :exit-start-turn :up-to-ramp
+    {:exit-start :up-to-ramp
      :up-to-ramp :post-ramp-find-junction
      :post-ramp-find-junction :start-to-centre-block
      ; :exit-start-turn :start-to-centre-block-tunnel
@@ -118,10 +117,10 @@
   (swap! *net-loop-state
     assoc :delay 0)
   
-  (swap! (:*input robot.state/net-robot) assoc
-    :motor-1 255
+  (swap! (:*input active-robot) assoc
+    :motor-1 -255
     :motor-2 255)
-  (swap! (:*input robot.state/net-robot) assoc
+  (swap! (:*input active-robot) assoc
     :motor-1 0
     :motor-2 0)
   
@@ -133,6 +132,7 @@
   
   (swap! (:*state active-robot) assoc
     :density :low)
+  
   
   
   )

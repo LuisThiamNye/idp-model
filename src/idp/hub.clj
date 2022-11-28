@@ -82,7 +82,7 @@
                 (swap! (:*input robot) assoc
                   :motor-1 0 :motor-2 0))
               (ui/label "Stop"))
-            (ui/gap 0 5)
+            #_#_(ui/gap 0 5)
             (ui/button
               (fn []
                 (swap! (:*state robot)

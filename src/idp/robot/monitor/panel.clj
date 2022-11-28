@@ -2,6 +2,7 @@
   "Visualisations of the robot sensor data and connection status."
   (:require
     [clojure.string :as str]
+    [puget.printer :as puget]
     [zprint.core :as zprint]
     [idp.robot.params :as params]
     [idp.robot.state :as robot.state]
@@ -421,49 +422,57 @@
             #(if (= :open %) :closed :open)))
         (ui/label "Grabber")))))
 
+(def *phase-select-history (atom {:entries [] :idx 0}))
+
+(defn phase-select-add-history! [text]
+  (swap! *phase-select-history
+    (fn [{:keys [entries idx]}]
+      (let [entries (conj (filterv (complement #{text})
+                            (subvec entries 0 idx))
+                      text)]
+        {:entries entries
+         :idx (count entries)}))))
+
+(defn phase-select-submit-command! [robot text]
+  (when (pos? (count text))
+    (try
+      (let [[sym params overlap]
+            (binding [*read-eval* false]
+              (read-string (str "[" text "]")))
+            phase-id (keyword sym)]
+        (swap! (:*state robot) assoc :phase
+          (assoc (phase/merge-states
+                   (phase/get-initial-state (phase/lookup-phase phase-id) params)
+                   overlap)
+            :phase-id phase-id))
+        (phase-select-add-history! text))
+      (catch Exception e
+        (println "Failed to set phase-id" e)))))
+
+(defn phase-select-nav-history! [n]
+  (let [{:keys [entries idx]}
+        (swap! *phase-select-history
+          (fn [{:keys [idx entries] :as h}]
+            (let [idx' (+ idx n)]
+              (if (<= 0 idx' (dec (count entries)))
+                (assoc h :idx idx')
+                h))))]
+    (nth entries idx nil)))
+
 (def ui-phase-select
-  (let [*history (atom {:entries []
-                        :idx 0})
-        nav-history
-        (fn [n]
-          (let [{:keys [entries idx]}
-                (swap! *history
-                  (fn [{:keys [idx entries] :as h}]
-                    (let [idx' (+ idx n)]
-                      (if (<= 0 idx' (count entries))
-                        (assoc h :idx idx')
-                        h))))]
-            (nth entries idx nil)))
-        add-history
-        (fn [text]
-          (swap! *history
-            (fn [{:keys [entries idx]}]
-              (let [entries (conj (filterv (complement #{text})
-                                    (subvec entries 0 idx))
-                              text)]
-                {:entries entries
-                 :idx (count entries)}))))]
-    (ui/dynamic ctx [{{*robot-state :*state} :robot} ctx]
+  (let []
+    (ui/dynamic ctx [{{*robot-state :*state :as robot} :robot} ctx]
       (ui/row
-        (ui/dynamic ctx
-          [phase-id (:phase-id @*robot-state)]
+        (ui/dynamic _ []
           (let [*state (atom {:placeholder "phase-id"
-                              :text (some-> phase-id name)})
+                              :text (peek (:entries @*phase-select-history))})
                 reset-text! (fn [text]
                               (let [n (count text)]
                                 (swap! *state assoc
                                   :text text
                                   :from n :to n)))
                 submit!
-                (fn [text]
-                  (when (pos? (count text))
-                    (let [phase-id (keyword text)]
-                      (try
-                        (swap! *robot-state
-                          phase/init-phase-id-on-state phase-id)
-                        (add-history text)
-                        (catch Exception e
-                          (println "Failed to set phase-id to" phase-id e))))))]
+                (fn [text] (phase-select-submit-command! robot text))]
             (ui/stack
               (ui/text-field *state)
               (ui/text-listener
@@ -472,8 +481,8 @@
                  {:on-key-down
                   (fn [{:keys [key]}]
                     (if-some [text (case key
-                                     :up (nav-history -1)
-                                     :down (nav-history 1)
+                                     :up (phase-select-nav-history! -1)
+                                     :down (phase-select-nav-history! 1)
                                      nil)]
                       (do (reset-text! text)
                         true)
@@ -483,21 +492,22 @@
                         false)))}
                  (ui/gap 100 0))))))
         (ui/button
-          (fn [] (reset! *robot-state
-                   (phase/init-phase-id-on-state
-                     (merge robot.state/initial-state
-                       (select-keys @*robot-state
-                         [:readings-history :auto?
-                          :next-phase-map]))
-                     (:phase-id @*robot-state))))
+          (fn [] (swap! *robot-state assoc :phase
+                   (phase/init-phase-id-on-state nil
+                     (:phase-id (:phase @*robot-state)))))
           (ui/label "Clean"))))))
 
 (def ui-raw-state-display
-  (let [fmt-data #(zprint.core/zprint-str %
-                    {:map {:justify? true
-                           :justify {:max-variance 20}
-                           :key-ignore [:history]}
-                     :width 60})]
+  (let [#_#_fmt-data #(zprint.core/zprint-str %
+                      {:map {:justify? true
+                             :justify {:max-variance 20}
+                             :key-ignore [:history]
+                             }
+                       :width 80})
+        fmt-data #(puget/pprint-str %
+                    {:width 60
+                     :coll-limit 7
+                     :map-coll-separator :line})]
     (ui/column #_
       (ui/dynamic ctx
         [readings (:robot-readings ctx)]
@@ -515,7 +525,12 @@
         [state (:robot-state ctx)]
         (multiline-label
           (fmt-data (dissoc state :readings-history
-                      :next-phase-map))))
+                      :next-phase-map :phase))))
+      (ui/gap 0 8)
+      (ui/dynamic ctx
+        [state (:robot-state ctx)]
+        (multiline-label
+          (fmt-data (:phase state))))
       (ui/gap 0 8)
       (ui/dynamic ctx
         [input (:robot-input ctx)]

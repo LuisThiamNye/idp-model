@@ -68,6 +68,7 @@
           (reset! *savestate (select-keys @robot.state/*real
                                [:position :angle])))
         (ui/label "Save"))
+      (ui/gap 5 0)
       (ui/button
         (fn []
           (swap! robot.state/*real merge @*savestate))
@@ -100,6 +101,7 @@
         (ui/center
           (ui/row
             ui-savestate-controls
+            (ui/gap 5 0)
             (ui/dynamic _ [looping? (sim/sim-running?)]
               (common/action-checkbox
                 {:state looping?
