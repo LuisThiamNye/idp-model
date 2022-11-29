@@ -80,4 +80,9 @@
     :motor-1 0
     :motor-2 0)
   
+  (swap! (:*input active-robot) assoc
+    :motor-1 155
+    :motor-2 155)
+  (:*input active-robot)
+  
   )

@@ -9,17 +9,17 @@
 
 (def dims
   "Important dimensions of the robot"
-  (let [axle-y 170
-        axle-to-ls 130]
-    {:width 200
-     :length 200
+  (let [axle-y 230
+        axle-to-ls 170]
+    {:width 210
+     :length 280
      :centre-y axle-y
      :line-sensors-y (- axle-y axle-to-ls)
      :line-sensors-spacing 20
      :line-sensors-centre-spacing 19
      
      :wheel-diameter 105
-     :wheel-spacing 205
+     :wheel-spacing 185
      :max-rpm 18
      
      :ultrasonic-1

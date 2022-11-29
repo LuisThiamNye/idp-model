@@ -120,18 +120,21 @@
               :id (if (= 255 id) 0 (inc id))))))
       response)))
 
-(defn reset-readings [prev-readings readings]
+(defn reset-readings [prev-readings readings input]
   ;; ensure that :line-switches is consistent with previous readings
-  (assoc readings :line-switches
-    (mapv (fn [prev-ls nswitches ls]
-            (let [expected-change? (odd? nswitches)
-                  change? (not= prev-ls ls)]
-              (cond-> nswitches
-                (not= change? expected-change?)
-                inc)))
-        (:line-sensors prev-readings)
-        (:line-switches readings)
-        (:line-sensors readings))))
+  (cond->
+    (assoc readings :line-switches
+     (mapv (fn [prev-ls nswitches ls]
+             (let [expected-change? (odd? nswitches)
+                   change? (not= prev-ls ls)]
+               (cond-> nswitches
+                 (not= change? expected-change?)
+                 inc)))
+       (:line-sensors prev-readings)
+       (:line-switches readings)
+       (:line-sensors readings)))
+    (not (:ultrasonic-active? input))
+    (assoc :ultrasonic-1 0 :ultrasonic-2 0)))
 
 (defn sync!
   "Main function that should get executed each clock cycle
@@ -143,8 +146,9 @@
         conn-status (-get-status conn)]
     (if (= :connected conn-status)
       (try
-        (when-some [readings (sendrecv! client conn @*input)]
-          (swap! *readings reset-readings readings))
+        (let [input @*input]
+          (when-some [readings (sendrecv! client conn input)]
+            (swap! *readings reset-readings readings input)))
         (catch IOException e
           (prn e)
           (reset-connection! client conn)))

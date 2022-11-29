@@ -1,4 +1,6 @@
-(ns idp.robot.brain.phase)
+(ns idp.robot.brain.phase
+  (:require
+    [taoensso.encore :as enc]))
 
 (def *phase-registry
   "Maps keyword to a phase definition var"
@@ -65,15 +67,15 @@
   (initialise-state (lookup-phase phase-id) state))
 
 (defn mark-done [cmd]
-  (update cmd :state assoc :phase-id nil))
+  (update cmd :state assoc :phase/done? true))
 
 (defn phase-done?
   ([{:keys [state]} nest-key]
-   (phase-done? {:state (or (get-in state [:sub-states nest-key])
-                          (get-in state [:sub-phases nest-key]))}))
+   (phase-done? {:state (enc/have map?
+                          (or (get-in state [:sub-states nest-key])
+                            (get-in state [:sub-phases nest-key])))}))
   ([{:keys [state]}]
-   (and (contains? state :phase-id)
-     (nil? (:phase-id state)))))
+   (:phase/done? state)))
 
 (defn merge-states [state1 state2]
   (cond-> (merge state1 (dissoc state2 :sub-states :sub-phases))
@@ -118,6 +120,7 @@
   (get (:sub-states state) nest-key))
 
 (defn merge-cmds
+  ([cmd] cmd)
   ([cmd1 cmd2]
    (-> (merge-with merge
          cmd1 (dissoc cmd2 :state))
@@ -127,7 +130,8 @@
      (merge-cmds cmd1 cmd2)
      cmds)))
 
-(defn tick-mapped-phase-group [robot state-key]
+(defn tick-mapped-phase-group
+  [robot state-key transition-fn]
   (let [parent-state (:state robot)
         {:keys [current-id phases next-phase-map]}
         (state-key parent-state)
@@ -157,7 +161,8 @@
           [next-phase-id merged-state])
         state2 (update-in parent-state
                  [state-key :phases current-id] merge-states substate2)
-        cmd (merge-cmds robot (assoc cmd :state state2))]
+        cmd (merge-cmds robot
+              (transition-fn robot (assoc cmd :state state2)))]
     (cond
       ;; if transitioning to a new phase, run it immediately
       (not= current-phase-id next-phase-id)
@@ -165,9 +170,10 @@
         (println "Transition: " current-phase-id " -> " next-phase-id)
         (recur
           (-> cmd
-            (assoc :merged-state merged-state)
+            (assoc :merged-state (merge-states merged-state (:state cmd)))
             (assoc-in [:state state-key :current-id] next-phase-id)
             (update-in [:state state-key :phases] dissoc current-id))
-          state-key))
+          state-key
+          transition-fn))
       :else
       cmd)))
