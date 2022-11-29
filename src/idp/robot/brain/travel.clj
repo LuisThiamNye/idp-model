@@ -1,6 +1,8 @@
 (ns idp.robot.brain.travel
   (:require
     [taoensso.encore :as enc]
+    [idp.board.params :as board.params]
+    [idp.robot.params :as robot.params]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
     [idp.robot.state :as robot.state]))
@@ -20,22 +22,15 @@
   "Line trigger = number of times line sensor has switched
   from seeing black to seeing white since the last response."
   [{:keys [line-switches] :as readings}]
-  (let [line-sensor-readings (robot.state/get-line-sensors readings)
-        sensor-line-enters
-        (fn [n]
-          (let [on? (= :white (nth line-sensor-readings n))
-                nswitches (nth line-switches n)
-                n-ons (long (Math/ceil (/ (cond-> nswitches
-                                            (not on?) dec)
-                                         2)))]
-            n-ons))]
-    [(sensor-line-enters 0)
-     (sensor-line-enters 1)
-     (sensor-line-enters 2)
-     (sensor-line-enters 3)]))
+  (let [line-sensor-readings (robot.state/get-line-sensors readings)]
+    (mapv (fn [n]
+            (let [white? (= :white (nth line-sensor-readings n))
+                  nswitches (nth line-switches n)
+                  nswitches-up-to-white (max 0 (cond-> nswitches (not white?) dec))]
+              (quot (inc nswitches-up-to-white) 2)))
+      (range 0 4))))
 
-(defn update-line-triggers
-  [line-triggers readings]
+(defn update-line-triggers [line-triggers readings]
   (mapv + line-triggers (get-line-triggers readings)))
 
 (defn get-combined-line-readings
@@ -78,14 +73,17 @@
          [:b :b :b :w] [:right 3]
          [:b :b :b :b]
          (match prev-intent
-           [:left 1]  [:left 2]
+           ;; go straight if line lost when between sensors
+           ;; - important for ramp
+           [:left 1]  [:straight]; [:left 2]
            [:left 3]  [:left 4]
-           [:right 1] [:right 2]
+           [:right 1] [:straight];[:right 2]
            [:right 3] [:right 4]
            :else prev-intent)
          :else prev-intent)))})
 
 (defphase basic-follow
+  "Follow the line, centred on the robot"
   :init {:follow-intent [:continue]
          :high-power? false}
   :tick
@@ -101,9 +99,10 @@
    (fn [state readings]
      (let [combined-readings (get-combined-line-readings readings)
            mirror-intent #(update % 0
-                            {:straight :straight
-                             :left :right
-                             :right :left})
+                            (some-fn
+                              {:left :right
+                               :right :left}
+                              identity))
            ;; Calculate in terms of left bias
            swap? (case (:bias state) :right true :left false)
            prev-intent (cond-> (:follow-intent state [:straight])
@@ -125,6 +124,8 @@
        (cond-> intent swap? mirror-intent)))})
 
 (defphase biased-follow
+  "Follow the line, keeping the line aligned with either the
+  middle- left or right sensor"
   :init (fn [{:keys [bias]}]
           {:follow-intent [:continue]
            :bias (enc/have #{:left :right} bias)
@@ -146,12 +147,12 @@
     (let
       [min-blackouts-duration 200 ;; determines when phase is done (ms)
        blackout-speed 50 ;; after first blackout, go slower
+       
        combined-readings (get-combined-line-readings readings)
        {:keys [blackout-duration]} state
        max-fspeed (if (pos? blackout-duration) blackout-speed 200)
-       forward-speed max-fspeed
-       done? (<= min-blackouts-duration blackout-duration)]
-      (if done?
+       forward-speed max-fspeed]
+      (if (<= min-blackouts-duration blackout-duration)
         (phase/mark-done {})
         {:state {:blackout-duration
                  (if (= [:b :b :b :b] combined-readings)
@@ -254,14 +255,6 @@
     {:state {:forward-amount (+ (:forward-amount state)
                                (calc-motor-forward-amount robot))}}))
 
-(defphase tracking-active-duration
-  "Keeps track of how much time has passed while the robot is unpaused"
-  :init {:duration 0}
-  :tick
-  (fn [{:keys [state readings]}]
-    {:state {:duration (+ (:duration state)
-                         (robot.state/get-active-dt readings))}}))
-
 (defphase junction-turn-spin
   "Turn from one junction exit to another.
   At the end, line sensors should be centred on the line."
@@ -297,34 +290,6 @@
         (phase/mark-done {})
         {:state {:location location}
          :input (motor-input forward-speed turn-speed)}))))
-
-(defphase until-straight
-  "Infers, based on motor input, when robot starts
-  going approximately straight"
-  :init (fn [params]
-          {:min-straight-duration (:min-straight-duration params 1000)})
-  :sub-phases
-  {:duration [tracking-active-duration]
-   :turn [tracking-motor-turn]}
-  :tick
-  (fn [{:keys [state] :as robot}]
-    (let [;; after this turn amount, restart timer
-          turn-amount-thres (long 6e4)
-          duration-cmd (phase/tick-subphase robot :duration)
-          duration (-> duration-cmd :state :sub-phases :duration :duration)
-          turn-cmd (phase/tick-subphase robot :turn)
-          turn-amount (-> turn-cmd :state :sub-phases :turn :turn-amount)
-          cmd (phase/merge-cmds turn-cmd duration-cmd)
-          reset? (<= turn-amount-thres (abs turn-amount))]
-      (cond
-        reset?
-        (-> cmd
-          (assoc-in [:state :sub-phases :duration :duration] 0)
-          (assoc-in [:state :sub-phases :turn :turn-amount] 0))
-        (<= (:min-straight-duration state) duration)
-        (phase/mark-done cmd)
-        :else
-        cmd))))
 
 (defphase tracking-motor-turn-rate
   "Calculates the turn rate over a fixed duration
@@ -370,11 +335,31 @@
                :duration duration
                :turn-amount turn-amount}})))
 
+(defphase until-straight
+  "Infers, based on motor input, when robot starts
+  going approximately straight"
+  :init (fn [params]
+          {:max-turn-rate (:max-turn-rate params 5)})
+  :sub-phases
+  (fn [params]
+    {:turn-rate [tracking-motor-turn-rate
+                 {:target-duration (:min-straight-duration params 800)}]})
+  :tick
+  (fn [{:keys [state] :as robot}]
+    (let [cmd (phase/tick-subphase robot :turn-rate)
+          turn-rate-state (-> cmd :state :sub-phases :turn-rate)
+          turn-rate (:turn-rate turn-rate-state)
+          done? (and (<= (:target-duration turn-rate-state) (:duration turn-rate-state))
+                  (<= (abs turn-rate) (:max-turn-rate state)))]
+      (if done?
+        (phase/mark-done cmd)
+        cmd))))
+
 (defphase until-turning
   "Infers, based on motor input, when robot starts turning"
   :init
   (fn [{:keys [turn-direction]}]
-    {:min-turn-rate 200 ;; turn amount per active millisecond
+    {:min-turn-rate 20 ;; turn amount per active millisecond
      :turn-direction turn-direction})
   :sub-phases
   {:turn [tracking-motor-turn-rate {:target-duration 700}]}
@@ -435,7 +420,7 @@
   (fn [{:keys [readings]
         {:keys [status turn-direction]} :state
         :as robot}]
-    (let [min-fwd-amount (long 10e5)
+    (let [min-fwd-amount (long 7e5)
           cmd (phase/tick-subphase robot :forward-amount)
           forward-amount (-> cmd :state :sub-phases :forward-amount :forward-amount)]
       (if (<= min-fwd-amount forward-amount)
@@ -645,11 +630,12 @@
 
 (defphase through-tunnel
   "Waits until refinding the line.
-  Drives robot in straight line at constant speed."
+  Drives robot in straight line at constant speed.
+  May use side-mounted ultrasonic sensors to adjust direction."
   :init {:nfinds 0}
   :tick
   (fn [{:keys [state readings]}]
-    (let [min-finds 3 ;; require multiple finds for extra certainty
+    (let [min-finds 3 ;; require multiple line encounters for extra certainty
           speed 255
           combined-line-readings (get-combined-line-readings readings)
           found-line? (match combined-line-readings
@@ -664,9 +650,26 @@
           done? (<= min-finds nfinds)]
       (if done?
         (phase/mark-done {})
-        {:state {:nfinds nfinds}
-         :input {:motor-1 speed
-                 :motor-2 speed}}))))
+        (let [;; ultrasonic-based correction algorithm as suggested by Greg
+              turn-speed
+              (let [max-x-error 10 ;; mm
+                    correcting-turn-speed 50
+                    ;; Use small angle approximations (robot going mostly straight)
+                    us-x-offset (-> robot.params/dims :ultrasonic-1 :pos :x)
+                    us-left-dist (:ultrasonic-1 readings)
+                    deviation
+                    (and (not (zero? us-left-dist))
+                      (let [;; estimated horizontal position of robot relative to tunnel midpoint
+                            x-pos (- us-left-dist
+                                    us-x-offset (/ (:tunnel-width board.params/dims) 2))
+                            abs-deviation (- (abs x-pos) max-x-error)]
+                        (when (pos? abs-deviation)
+                          (cond-> abs-deviation (neg? x-pos) -))))]
+                (if deviation
+                  (cond-> correcting-turn-speed (pos? deviation) -)
+                  0))]
+          {:state {:nfinds nfinds}
+           :input (motor-input speed turn-speed)})))))
 
 (defphase tunnel-approach
   "Does line following up to tunnel.
@@ -703,8 +706,7 @@
   :tick
   (fn [{:keys [state readings]}]
     (let [signal-duration 5000
-          time-elapsed (+ (:time-elapsed state)
-                         (robot.state/get-active-dt readings))]
+          time-elapsed (+ (:time-elapsed state) (:dt readings))]
       (if (<= signal-duration time-elapsed)
         (phase/mark-done
           {:input {:signal-block-density nil}})
@@ -769,36 +771,33 @@
   {:rhs-lines-found 0
    :lhs-lines-found 0}
   :sub-phases
-  {:follow [biased-follow {:bias :left}]}
+  {:follow [biased-follow {:bias :right}]}
   :tick
   (fn [{:keys [state readings] :as robot}]
     (let [combined-readings (get-combined-line-readings readings)
-          cmd (phase/tick-subphase robot :follow)
-          cmd (phase/merge-cmds {:state state} cmd)
-          cmd
-          (if (= combined-readings
-                (:combined-line-readings state))
-            cmd
+          state'
+          (if (= combined-readings (:combined-line-readings state))
+            state
             (match combined-readings
               [:w :w :w :w]
-              (-> cmd
-                (update-in [:state :rhs-lines-found] inc)
-                (update-in [:state :lhs-lines-found] inc))
+              (-> state
+                (update :rhs-lines-found inc)
+                (update :lhs-lines-found inc))
               [:b :w :w :w]
-              (update-in cmd [:state :rhs-lines-found] inc)
+              (update state :rhs-lines-found inc)
               [:w :w :w :b]
-              (update-in cmd [:state :lhs-lines-found] inc)
+              (update state :lhs-lines-found inc)
               :else
-              cmd))
-          state (:state cmd)
-          done? (and (<= 1 (:rhs-lines-found state))
-                  (or (<= 2 (:lhs-lines-found state))
-                    (and (<= 1 (:lhs-lines-found state))
+              state))
+          done? (and (<= 1 (:rhs-lines-found state'))
+                  (or (<= 2 (:lhs-lines-found state'))
+                    (and (<= 1 (:lhs-lines-found state'))
                       (:block-present? readings))))]
       (if done?
         (phase/mark-done {})
-        (assoc-in cmd [:state :combined-line-readings]
-          combined-readings)))))
+        (phase/merge-cmds
+          (phase/tick-subphase robot :follow)
+          {:state (assoc state' :combined-line-readings combined-readings)})))))
 
 (defphase post-ramp-turning
   :init {}
@@ -807,7 +806,7 @@
   :tick
   (fn [{:as robot}]
     (let [;; after this turn amount, we have turned enough
-          turn-amount-thres (long 1e6)
+          turn-amount-thres (long 3e5)
           turn-cmd (phase/tick-subphase robot :turn)
           done? (<= (-> turn-cmd :state :sub-phases :turn :turn-amount)
                   (- turn-amount-thres))]
@@ -820,7 +819,9 @@
   :sub-phases
   {:until-turning [until-turning {:turn-direction :left}]
    :turning [post-ramp-turning]
-   :follow [basic-follow nil {:high-power? true}]}
+   :follow [basic-follow nil {:high-power? true}]
+   :until-straight [until-straight {:min-straight-duration 200
+                                    :max-turn-rate 60}]}
   :tick
   (fn [{:keys [state reinit?] :as robot}]
     (case (:status state)
@@ -838,6 +839,17 @@
       :turning
       (let [cmd (phase/tick-subphase robot :turning)]
         (if (phase/phase-done? cmd :turning)
+          (recur (assoc robot
+                   :reinit? true
+                   :state (-> state
+                            (assoc :status :straightening))))
+          (phase/merge-cmds
+            (when reinit? {:state state})
+            cmd
+            (phase/tick-subphase robot :follow))))
+      :straightening
+      (let [cmd (phase/tick-subphase robot :until-straight)]
+        (if (phase/phase-done? cmd :until-straight)
           (phase/mark-done {})
           (phase/merge-cmds
             (when reinit? {:state state})
@@ -858,7 +870,7 @@
     (case (:status state)
       :find-turn
       (let [;; after this turn amount, we have turned enough
-            turn-amount-thres (long 1e6)
+            turn-amount-thres (long 3e5)
             turn-cmd (phase/tick-subphase robot :turn)
             done? (<= (-> turn-cmd :state :sub-phases :turn :turn-amount)
                     (- turn-amount-thres))]
@@ -885,10 +897,10 @@
   line following"
   :init {:line-triggers [0 0 0 0]}
   :tick
-  (fn [{:keys [state readings]}]
+  (fn [{:keys [readings]
+        {:keys [line-triggers]} :state}]
     (let [sturn 120
           sturnf 170
-          {:keys [line-triggers]} state
           [_ _ ntriggers-right ntriggers-far-right
            :as line-triggers] (update-line-triggers line-triggers readings)
           ;; done when right two sensors have encountered the line
@@ -904,10 +916,10 @@
   At least three line sensors should find a distinct white region twice."
   :init {:line-triggers [0 0 0 0]}
   :tick
-  (fn [{:keys [state readings]}]
+  (fn [{:keys [readings]
+        {:keys [line-triggers]} :state}]
     (let
       [sforward 200
-       {:keys [line-triggers] :as _state} state
        line-triggers (update-line-triggers line-triggers readings)
        ;; one line sensor may remain on the path and not be triggered twice
        found-junction?
@@ -918,9 +930,7 @@
        (and found-junction?
          (every? #(= % :black) (robot.state/get-line-sensors readings)))]
       (if done?
-        ;; FIXME do excess forwards movement instead
-        (phase/mark-done
-          {:readings {:line-switches [0 0 0 0]}})
+        (phase/mark-done {})
         (let [speed sforward]
           {:state {:line-triggers line-triggers}
            :input (motor-input speed)})))))
@@ -951,19 +961,21 @@
           cmd)))))
 
 (defphase full-run
-  :init (fn [{:keys [id]}]
-          {:nest {:current-id (or id :exit-start)
-                  :next-phase-map
-                  {:exit-start :up-to-ramp
-                   :up-to-ramp :post-ramp-find-junction
-                   :post-ramp-find-junction :post-ramp-to-centre-block
-                   :post-ramp-to-centre-block :detect-block
-                   :detect-block :tunnel-approach
-                   :tunnel-approach :through-tunnel
-                   :through-tunnel :up-to-dropoff-box
-                   :up-to-dropoff-box [:box-approach-turn {:turn-direction :right}]
-                   :box-approach-turn :box-approach-edge
-                   :box-approach-edge :backup-from-box}}})
+  :init
+  (fn [{:keys [id]}]
+    {:nest {:current-id (or id :exit-start)
+            :competition-start-time (System/currentTimeMillis)
+            :next-phase-map
+            {:exit-start :up-to-ramp
+             :up-to-ramp :post-ramp-find-junction
+             :post-ramp-find-junction :post-ramp-to-centre-block
+             :post-ramp-to-centre-block :detect-block
+             :detect-block :tunnel-approach
+             :tunnel-approach :through-tunnel
+             :through-tunnel :up-to-dropoff-box
+             :up-to-dropoff-box [:box-approach-turn {:turn-direction :right}]
+             :box-approach-turn :box-approach-edge
+             :box-approach-edge :backup-from-box}}})
   :tick
   (fn [{:keys [] :as robot}]
     (let [{{:keys [density go-home?]} :output

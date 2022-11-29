@@ -45,12 +45,11 @@
   [prev-readings readings]
   (assoc readings
     :line-switches
-    (let [switches (:line-switches prev-readings)]
-      (mapv (fn [n prev current]
-              (cond-> n (not= prev current) inc))
-        switches
-        (:line-sensors prev-readings)
-        (:line-sensors readings)))))
+    (mapv (fn [n prev current]
+            (cond-> n (not= prev current) inc))
+      (:line-switches prev-readings)
+      (:line-sensors prev-readings)
+      (:line-sensors readings))))
 
 (defn process-request! [*state req]
   ;; important to use id rather than :retry? bit or else cannot

@@ -67,37 +67,35 @@
 
 (def ui-rect-meter
   (let [border-stroke (paint/stroke 0xFF505050 3)
-        fallback-fill (paint/fill 0xFF89dddd)
-        fallback-nodata-fill (paint/fill 0xFFa5c6c6)]
+        fallback-fill (paint/fill 0xFFb3efef)
+        fallback-nodata-fill (paint/fill 0xFFc7dbdb)]
     (ui/dynamic _ []
       (ui/rect border-stroke
         (ui/padding 1
           (ui/canvas
             {:on-paint
              (fn [ctx ^Canvas cnv ^IPoint size]
-               (let [coeff (:meter-value ctx)]
-                 (if (nil? coeff)
-                   (let [no-data-fill (:no-data-fill ctx fallback-nodata-fill)]
-                     (.drawRect cnv (Rect/makeWH (.toPoint size)) no-data-fill))
-                   (let [zero-location (:meter-zero ctx :left)
-                         signed? (= :h-mid zero-location)
-                         full-width (cond-> (:width size) signed? (/ 2))
-                         width (* full-width (float coeff))
-                         fill (:fill ctx fallback-fill)
-                         height (:height size)
-                         loffset (if (= :left zero-location)
-                                   0
-                                   full-width)]
-                     (.drawRect cnv
-                       (if (neg? coeff)
-                         (Rect/makeLTRB (+ loffset width) 0 loffset height)
-                         (Rect/makeXYWH loffset 0 width height))
-                       fill)))))}))))))
+               (if-some [coeff (:meter-value ctx)]
+                 (let [zero-location (:meter-zero ctx :left)
+                       signed? (= :h-mid zero-location)
+                       full-width (cond-> (:width size) signed? (/ 2))
+                       width (* full-width (float coeff))
+                       fill (:fill ctx fallback-fill)
+                       height (:height size)
+                       loffset (if (= :left zero-location)
+                                 0
+                                 full-width)]
+                   (.drawRect cnv
+                     (if (neg? coeff)
+                       (Rect/makeLTRB (+ loffset width) 0 loffset height)
+                       (Rect/makeXYWH loffset 0 width height))
+                     fill))
+                 (let [no-data-fill (:no-data-fill ctx fallback-nodata-fill)]
+                   (.drawRect cnv (Rect/makeWH (.toPoint size)) no-data-fill))))}))))))
 
 (def ui-motor
   (let [forward-fill (paint/fill 0xFFc3ddf7)
-        backward-fill (paint/fill 0xFFf7e7c0)
-        border-stroke (paint/stroke 0xFF505050 3)]
+        backward-fill (paint/fill 0xFFf7e7c0)]
     (ui/stack
       (ui/dynamic ctx [ui-rect-meter ui-rect-meter
                        speed (:motor-speed ctx)]
@@ -128,14 +126,17 @@
   (let [max-dist 800]
     (ui/dynamic _ [ui-rect-meter ui-rect-meter]
       (ui/stack
-        (ui/dynamic ctx [dist (or (us-key (:robot-readings ctx)) 0)]
+        (ui/dynamic ctx [dist (us-key (:robot-readings ctx))]
           (let [coeff (float (/ dist max-dist))]
             (ui/with-context
-              {:meter-value coeff}
+              {:meter-value (when (pos? dist) coeff)}
               ui-rect-meter)))
         (ui/dynamic ctx [dist (us-key (:robot-readings ctx))]
           (ui/valign 0.5
-            (ui/label (str (format " %.1f" (float dist)) " mm"))))))))
+            (ui/padding 5 0 0 0
+              (ui/label (if (zero? dist)
+                          "—"
+                          (str (format "%.1f" (float dist)) " mm"))))))))))
 
 (def ui-ultrasonics
   (ui/dynamic _ [ui-ultrasonic ui-ultrasonic]
@@ -165,8 +166,10 @@
                           (/ gap 2))
               rect-height (:height size)]
              (reduce
-               (fn [y {:keys [ultrasonic-1 ultrasonic-2 dt]}]
-                 (let [seg-height (min (* px-per-t dt) rect-height)
+               (fn [y {:keys [ultrasonic-1 ultrasonic-2] :as reading}]
+                 (let [seg-height (min (* px-per-t
+                                         (robot.state/get-active-dt reading))
+                                    rect-height)
                        y2 (+ y seg-height)
                        draw-bar
                        (fn [ultrasonic left?]
@@ -213,9 +216,8 @@
                (when (and (<= 0 i)
                        (<= y rect-height))
                  (let [{:keys [line-sensors
-                               line-switches
-                               dt]} (nth history i)
-                       seg-height (min (* px-per-t dt) rect-height)
+                               line-switches] :as reading} (nth history i)
+                       seg-height (min (* px-per-t (robot.state/get-active-dt reading)) rect-height)
                        y2 (unchecked-int (+ y seg-height))
                        draw-seg
                        (fn [n x]
@@ -263,7 +265,7 @@
                   @(client/get-req-status-atom client)]
                  (ui/label
                    (let [nreqs (+ ndropped ncompleted)]
-                     (str ndropped #_#_"/" nreqs " ("
+                     (str ndropped " ("
                        (format "%.2f"
                          (float
                            (if (zero? nreqs)
@@ -331,40 +333,6 @@
 
 (def *select-sim? (atom false))
 
-(def ui-block-status
-  (let [inactive-fill (paint/fill 0x4F000000)
-        active-fill (paint/fill 0xFF40F040)
-        green-fill (paint/fill 0xFFa6f7a0)
-        red-fill (paint/fill 0xFFf7a0a0)]
-    (ui/row
-      (ui/dynamic ctx
-        [{:keys [block-density
-                 block-present?]} (:robot-readings ctx)]
-        (ui/rect (case block-present?
-                   true active-fill
-                   false inactive-fill
-                   (paint/fill 0xFFFFFFFF))
-          (ui/padding 3
-            (ui/center
-              (ui/label (case block-density
-                          :high "HI"
-                          :low "LO"
-                          "??"))))))
-      (ui/gap 5 0)
-      (ui/dynamic ctx
-        [{:keys [signal-block-density]} (:robot-input ctx)]
-        (ui/rect
-          (case signal-block-density
-            :high red-fill
-            :low green-fill
-            nil inactive-fill)
-          (ui/padding 3
-            (ui/center
-              (ui/label (case signal-block-density
-                          :high "HI"
-                          :low "LO"
-                          "  ")))))))))
-
 (def ui-client-controls
   (ui/dynamic ctx
     [{:keys [client]} ctx
@@ -413,14 +381,7 @@
                                    (client/-get-connection client))]
         (ui/valign 0.5 (ui/label (name conn-status))))
       (ui/gap 5 0)
-      (ui/checkbox *select-sim? (ui/label "Sim"))
-      (ui/gap 5 0)
-      (ui/button
-        (fn []
-          (swap! (:*input robot) update
-            :grabber-position
-            #(if (= :open %) :closed :open)))
-        (ui/label "Grabber")))))
+      (ui/checkbox *select-sim? (ui/label "Sim")))))
 
 (def *phase-select-history (atom {:entries [] :idx 0}))
 
@@ -460,13 +421,12 @@
     (nth entries idx nil)))
 
 (def ui-phase-select
-  (let []
+  (let [*state (atom {:placeholder "phase-id"
+                      :text (peek (:entries @*phase-select-history))})]
     (ui/dynamic ctx [{{*robot-state :*state :as robot} :robot} ctx]
       (ui/row
         (ui/dynamic _ []
-          (let [*state (atom {:placeholder "phase-id"
-                              :text (peek (:entries @*phase-select-history))})
-                reset-text! (fn [text]
+          (let [reset-text! (fn [text]
                               (let [n (count text)]
                                 (swap! *state assoc
                                   :text text
@@ -490,12 +450,10 @@
                         :enter (do (submit! (:text @*state))
                                  true)
                         false)))}
-                 (ui/gap 100 0))))))
+                 (ui/gap 200 0))))))
         (ui/button
-          (fn [] (swap! *robot-state assoc :phase
-                   (phase/init-phase-id-on-state nil
-                     (:phase-id (:phase @*robot-state)))))
-          (ui/label "Clean"))))))
+          (fn [] (phase-select-submit-command! robot (:text @*state)))
+          (ui/label "Go"))))))
 
 (def ui-raw-state-display
   (let [#_#_fmt-data #(zprint.core/zprint-str %
@@ -508,8 +466,8 @@
                     {:width 60
                      :coll-limit 7
                      :map-coll-separator :line})]
-    (ui/column #_
-      (ui/dynamic ctx
+    (ui/column
+      #_(ui/dynamic ctx
         [readings (:robot-readings ctx)]
         (multiline-label
           (fmt-data (dissoc readings
@@ -520,13 +478,13 @@
                       :block-present?
                       :dt
                       :time-received))))
-      (ui/gap 0 8)
-      (ui/dynamic ctx
+      #_(ui/gap 0 8)
+      #_(ui/dynamic ctx
         [state (:robot-state ctx)]
         (multiline-label
           (fmt-data (dissoc state :readings-history
                       :next-phase-map :phase))))
-      (ui/gap 0 8)
+      #_(ui/gap 0 8)
       (ui/dynamic ctx
         [state (:robot-state ctx)]
         (multiline-label
@@ -535,38 +493,100 @@
       (ui/dynamic ctx
         [input (:robot-input ctx)]
         (multiline-label
-          (fmt-data (dissoc input :motor-1 :motor-2)))))))
+          (fmt-data (dissoc input :motor-1 :motor-2
+                      :signal-block-density :grabber-position)))))))
+
+(def ui-block-status
+  (let [inactive-fill (paint/fill 0x4F000000)
+        active-fill (paint/fill 0xFF40F040)
+        green-fill (paint/fill 0xFFa6f7a0)
+        red-fill (paint/fill 0xFFf7a0a0)]
+    (ui/row
+      (ui/dynamic ctx
+        [{:keys [block-density
+                 block-present?]} (:robot-readings ctx)]
+        (ui/rect (case block-present?
+                   true active-fill
+                   false inactive-fill
+                   (paint/fill 0xFFFFFFFF))
+          (ui/padding 3
+            (ui/center
+              (ui/label (case block-density
+                          :high "HI"
+                          :low "LO"
+                          "??"))))))
+      (ui/gap 5 0)
+      (ui/valign 0.5 (ui/label "Signal:"))
+      (ui/dynamic ctx
+        [{:keys [signal-block-density]} (:robot-input ctx)
+         {:keys [robot]} ctx]
+        (ui/clickable
+          {:on-click
+           (fn [_] (swap! (:*input robot) update :signal-block-density
+                     {:high :low
+                      :low nil
+                      nil :high}))}
+          (ui/rect
+            (case signal-block-density
+              :high red-fill
+              :low green-fill
+              nil inactive-fill)
+            (ui/padding 4
+              (ui/center
+                (ui/label (case signal-block-density
+                            :high "HI"
+                            :low "LO"
+                            "  "))))))))))
+
+(def ui-top-indicators
+  (ui/dynamic _ [ui-block-status ui-block-status
+                 ui-line-sensors ui-line-sensors]
+    (ui/row
+      ui-line-sensors
+      (ui/gap 8 0)
+      ui-block-status
+      (ui/gap 5 0)
+      (ui/dynamic ctx
+        [{{:keys [grabber-position]} :robot-input
+          :keys [robot]} ctx]
+        (ui/valign 0.5
+          (ui/with-context
+            {:hui.button/bg (paint/fill 0)}
+            (ui/button
+              (fn []
+                (swap! (:*input robot) update
+                  :grabber-position
+                  #(if (= :open %) :closed :open)))
+              (ui/label (str "Grabber: "
+                          (case grabber-position
+                            :open "open"
+                            :closed "closed"
+                            "?"))))))))))
 
 (def ui-mainpage
-  (ui/dynamic _ [ui-line-sensors ui-line-sensors
-                 ui-motors ui-motors
+  (ui/dynamic _ [ui-motors ui-motors
                  ui-ultrasonics ui-ultrasonics
                  ui-ultrasonics-graph ui-ultrasonics-graph
                  ui-line-sensors-graph ui-line-sensors-graph
                  ui-client-controls ui-client-controls
                  ui-latency-graph ui-latency-graph
-                 ui-block-status ui-block-status
+                 ui-top-indicators ui-top-indicators
                  ui-phase-select ui-phase-select
                  ui-raw-state-display ui-raw-state-display]
     (ui/row
       ui-line-sensors-graph
       [:stretch 1
        (ui/column
-         (ui/padding 5
-           (ui/row
-             ui-line-sensors
-             (ui/gap 8 0)
-             ui-block-status
-             (ui/gap 10 0)
-             ui-client-controls))
-         (ui/padding 5 0 ui-motors)
+         (ui/padding 4 3 ui-top-indicators)
+         (ui/padding 4 3 ui-client-controls)
+         (ui/padding 4 0 ui-motors)
          (ui/gap 0 5)
-         (ui/padding 5 0 ui-ultrasonics)
+         (ui/padding 4 0 ui-ultrasonics)
          [:stretch 1
-          (ui/column ;; column to ensure scroll gets measured and updated
+          (ui/column ;; column within :stretch to ensure scroll gets measured and updated
             (ui/vscrollbar
               (ui/vscroll
-                (ui/padding 5 0 5 5
+                (ui/padding 5
                   ui-raw-state-display))))]
          (ui/row
            ui-phase-select
@@ -583,7 +603,7 @@
                     (swap! *robot-state update :readings-history empty))}
                  (ui/dynamic ctx
                    [npoints (count (:readings-history (:robot-state ctx)))]
-                   (ui/label (str "Responses: " npoints)))))))
+                   (ui/label (str npoints " responses")))))))
          (ui/gap 0 5)
          (ui/height 100 ui-latency-graph))]
       ui-ultrasonics-graph)))

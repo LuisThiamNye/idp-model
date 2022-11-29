@@ -97,7 +97,7 @@
     (when-not response
       (cond
         failed-to-send?
-        (do (println "net.api: Failed to send")
+        (do (println "client: Failed to send")
           (reset-connection! client conn))
         
         ;; If response timed out
@@ -106,7 +106,7 @@
             (< response-timeout
               (- (System/currentTimeMillis) req-time))))
         (do
-          (println "net.api: Response timed out!")
+          (println "client: Response timed out!")
           (swap! *req-status update :requests-dropped inc)
           (reset-connection! client conn)
           nil)))
@@ -120,6 +120,19 @@
               :id (if (= 255 id) 0 (inc id))))))
       response)))
 
+(defn reset-readings [prev-readings readings]
+  ;; ensure that :line-switches is consistent with previous readings
+  (assoc readings :line-switches
+    (mapv (fn [prev-ls nswitches ls]
+            (let [expected-change? (odd? nswitches)
+                  change? (not= prev-ls ls)]
+              (cond-> nswitches
+                (not= change? expected-change?)
+                inc)))
+        (:line-sensors prev-readings)
+        (:line-switches readings)
+        (:line-sensors readings))))
+
 (defn sync!
   "Main function that should get executed each clock cycle
   to handle the transfer of data between the client and
@@ -131,11 +144,11 @@
     (if (= :connected conn-status)
       (try
         (when-some [readings (sendrecv! client conn @*input)]
-          (reset! *readings readings))
+          (swap! *readings reset-readings readings))
         (catch IOException e
           (prn e)
           (reset-connection! client conn)))
       (when-not (= :connecting conn-status)
         (when-not (= :connecting (:status req-status))
-          (println "net.api: Not connected; connecting"))
+          (println "client: Not connected; connecting"))
         (reset-connection! client conn)))))

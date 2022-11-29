@@ -47,8 +47,7 @@
    :ultrasonic-active? false})
 
 (def initial-state
-  {:readings-history []
-   :competition-start-time -1})
+  {:readings-history []})
 
 (def initial-readings
   {:line-sensors [:black :black :black :black]

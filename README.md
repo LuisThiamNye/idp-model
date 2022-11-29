@@ -14,5 +14,5 @@ Overview:
 
 ---
 
-Copyright 2022 Luis Thiam-Nye
+Copyright 2022 Luis Thiam-Nye and contributors
 

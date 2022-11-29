@@ -23,7 +23,7 @@
      :max-rpm 18
      
      :ultrasonic-1
-     {:pos {:x -70 :y -70}
+     {:pos {:x -90 :y -70}
       :angle 270}
      :ultrasonic-2
      {:pos {:x 0 :y 30}
