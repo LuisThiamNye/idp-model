@@ -387,6 +387,8 @@
       (ui/checkbox *select-sim? (ui/label "Sim")))))
 
 (def *phase-select-history (atom {:entries [] :idx 0}))
+(count (:entries @*phase-select-history))
+(do (:idx @*phase-select-history))
 
 (defn phase-select-add-history! [text]
   (swap! *phase-select-history
@@ -463,6 +465,16 @@
                      :coll-limit 7
                      :map-coll-separator :line})]
     (ui/column
+      (ui/dynamic ctx
+        [start-time (:competition-start-time
+                      (:phase (:robot-state ctx)))
+         t (System/currentTimeMillis)]
+        (ui/label
+          (if start-time
+            (str "Time elapsed: "
+              (min 9999 (long (/ (- t start-time) 1000)))
+              "/300")
+            "-")))
       #_(ui/dynamic ctx
         [readings (:robot-readings ctx)]
         (multiline-label

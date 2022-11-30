@@ -20,15 +20,17 @@
      (if (and (= [:continue] intent)
            (not (:tolerate-blackout? follow-strategy)))
        (let [{:keys [readings-history]} robot]
-         (when-some
+         (if-some
            [last-nonblackout-readings
-            (reduce (fn [_ readings]
-                      (when (not= [:b :b :b :b]
-                              (get-combined-line-readings readings))
-                        (reduced readings)))
-              nil (rseq readings-history))]
+            (when (map? readings-history)
+              (reduce (fn [_ readings]
+                        (when (not= [:b :b :b :b]
+                                (get-combined-line-readings readings))
+                          (reduced readings)))
+                nil (rseq readings-history)))]
            ((:intent-fn follow-strategy)
-            state last-nonblackout-readings)))
+            state last-nonblackout-readings)
+           intent))
        intent)]
     (if (= [:continue] intent)
       {}
@@ -71,17 +73,22 @@
 
 (defphase basic-follow
   "Follow the line, centred on the robot"
-  :init {:follow-intent [:continue]
-         :high-power? false}
+  :init (fn [params]
+          {:follow-intent [:continue]
+           :high-power? (:high-power? params false)
+           :low-power? (:low-power? params false)})
   :tick
   (fn [{:keys [state] :as robot}]
     (tick-common-follow robot
       (assoc basic-follow-strategy :level-speeds
-        (if (:high-power? state)
+        (cond
+          (:high-power? state)
           [[255 0] [255 30] [255 30] [0 255] [0 255]]
-          [[255 0] [230 30] [80 150] [20 200] [0 200]])))))
+          (:low-power? state)
+          [[180 0] [170 30] [80 150] [18 150] [0 160]]
+          :else [[255 0] [230 30] [80 150] [20 200] [0 200]])))))
 
-(defphase basic-follow-correcting
+(defphase follow-correcting
   :init (fn [params]
           {:blackout-duration 0
            :min-blackout-duration 500 ;; time before reversing spin
@@ -91,7 +98,7 @@
            })
   :sub-phases
   (fn [params]
-    {:follow [basic-follow params]})
+    {:follow (enc/have vector? (:phase-decl params))})
   :tick
   (fn [{:keys [readings state]
         {:keys [blackout-duration min-blackout-duration reversals]} :state
@@ -112,7 +119,7 @@
           (or (= 4 follow-level)
             (and (:correct-straight? state) (= :straight follow-dir)))
           (<= thres blackout-duration))
-        (do (prn thres)
+        (do
           (phase/merge-cmds
            (assoc-in cmd [:state :sub-phases :follow :follow-intent]
              [(case follow-dir :left :right :right :left :straight :left) 4])
@@ -185,7 +192,7 @@
   :init (fn [{:keys [bias] :as params}]
           {:bias (enc/have #{:left :right} bias)
            :bias-level (enc/have #{2} (:bias-level params 2))
-           :high-power? false
+           :high-power? (:high-power? params false)
            :follow-intent [:continue]
            })
   :tick
@@ -193,8 +200,8 @@
     (tick-common-follow robot
       (assoc biased-follow-strategy :level-speeds
         (if (:high-power? state)
-          [[255 0] [255 30] [255 30] [0 255] [0 255]]
-          [[255 0] [230 30] [80 150] [20 200] [0 180]])))))
+          [[255 0] [255 40] [255 30] [0 255] [0 255]]
+          [[240 0] [220 35] [80 150] [20 180] [0 180]])))))
 
 (defphase follow-up-to-blackout
   "Does line following to tightly follow the line until it suddenly ends.

@@ -22,6 +22,7 @@
   bu/straight-up-to-blackout
   follow/biased-follow
   follow/basic-follow
+  follow/follow-correcting
   follow/follow-up-to-blackout)
 
 (defphase through-tunnel
@@ -78,7 +79,7 @@
   blackouts, and when ultrasonic sensor reads a reasonable distance."
   :init {}
   :sub-phases
-  {:follow [basic-follow]
+  {:follow [follow-correcting {:phase-decl [basic-follow]}]
    :follow-b [follow-up-to-blackout]
    :us-condition
    [tracking-prolonged-condition
@@ -97,7 +98,8 @@
           (if (phase/phase-done? cmd :follow-b)
             (phase/mark-done
               (phase/merge-cmds cmd
-                {:input {:ultrasonic-active? false}}))
+                {:input {:grabber-position :open
+                         :ultrasonic-active? false}}))
             cmd))
         (phase/merge-cmds cmd
           (phase/tick-subphase robot :follow))))))

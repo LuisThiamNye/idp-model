@@ -22,6 +22,7 @@
   bu/straight-up-to-blackout
   bu/tracking-motor-forward
   follow/biased-follow
+  follow/follow-correcting
   follow/basic-follow)
 
 (defphase junction-approach-turn-excess
@@ -82,7 +83,10 @@
            :turn-direction turn-direction})
   :sub-phases
   (fn [{:keys [turn-direction]}]
-    {:follow [biased-follow {:bias (enc/have #{:left :right} turn-direction)}]})
+    {:follow [follow-correcting
+              {:phase-decl
+               [biased-follow
+                {:bias (enc/have #{:left :right} turn-direction)}]}]})
   :tick
   (fn [{:keys [state readings]
         {:keys [turn-direction]} :state :as robot}]

@@ -121,6 +121,7 @@
       response)))
 
 (defn reset-readings [prev-readings readings input]
+  {:post [(= 4 (count (:line-switches %)))]}
   ;; ensure that :line-switches is consistent with previous readings
   (cond->
     (assoc readings :line-switches
@@ -130,7 +131,7 @@
                (cond-> nswitches
                  (not= change? expected-change?)
                  inc)))
-       (:line-sensors prev-readings)
+       (:line-sensors prev-readings [:black :black :black :black])
        (:line-switches readings)
        (:line-sensors readings)))
     (not (:ultrasonic-active? input))

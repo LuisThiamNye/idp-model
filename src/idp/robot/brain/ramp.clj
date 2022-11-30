@@ -19,7 +19,7 @@
   bu/straight-up-to-blackout
   follow/biased-follow
   follow/basic-follow
-  follow/basic-follow-correcting)
+  follow/follow-correcting)
 
 (defphase post-ramp-to-centre-block
   "Does right-biased line following up to central collection point."
@@ -27,7 +27,7 @@
   {:rhs-lines-found 0
    :lhs-lines-found 0}
   :sub-phases
-  {:follow [biased-follow {:bias :right}]}
+  {:follow [follow-correcting {:phase-decl [biased-follow {:bias :right}]}]}
   :tick
   (fn [{:keys [state readings]
         {:keys [rhs-lines-found lhs-lines-found]} :state
@@ -46,8 +46,8 @@
               :else
               [lhs-lines-found rhs-lines-found]))
           done? (and
-                  (<= 1 rhs-lines-found)
-                  (<= 1 lhs-lines-found)
+                  (or (<= 1 rhs-lines-found)
+                    (<= 1 lhs-lines-found))
                   (:block-present? readings))
           cmd (phase/tick-subphase robot :follow)]
       (if done?
@@ -77,16 +77,26 @@
 (defphase post-ramp-straighten
   :init {}
   :sub-phases
-  {:until-straight [until-straight {:min-straight-duration 400
+  {:until-straight [until-straight {:min-straight-duration 500
                                     :max-turn-rate 60}]
-   :follow [basic-follow-correcting]}
+   :us-condition
+   [tracking-prolonged-condition
+    {:min-duration 1200
+     :pred (fn [{:keys [readings]}]
+             (< 300 (rs/get-rear-ultrasonic readings) 800))}]
+   :follow [follow-correcting {:phase-decl [basic-follow]}]}
   :tick
   (fn [{:as robot}]
     (let [cmd (phase/merge-cmds
                 (phase/tick-subphase robot :until-straight)
-                (phase/tick-subphase robot :follow))]
-      (if (phase/phase-done? cmd :until-straight)
-        (phase/mark-done cmd)
+                (phase/tick-subphase robot :follow)
+                (phase/tick-subphase robot :us-condition)
+                {:input {:ultrasonic-active? true}})]
+      (if (and (phase/phase-done? cmd :until-straight)
+            (phase/phase-done? cmd :us-condition))
+        (phase/mark-done
+          (phase/merge-cmds cmd
+            {:input {:ultrasonic-active? false}}))
         cmd))))
 
 (defphase post-ramp-find-junction
@@ -95,19 +105,22 @@
   {:us-turning-condition [tracking-prolonged-condition
                           {:min-duration 80
                            :pred (fn [{:keys [readings]}]
-                                   (<= 140 (:ultrasonic-2 readings) 500))}]
-   :follow [biased-follow {:bias :left}]}
+                                   (<= 140 (:ultrasonic-2 readings) 1000))}]
+   :until-turning [until-turning {:turn-direction :left
+                                  :min-turn-rate 200}]
+   :follow [follow-correcting {:phase-decl [basic-follow {:low-power? false}]}]}
   :tick
   (fn [{:keys [] :as robot}]
     (let [cmd (phase/merge-cmds
                 (phase/tick-subphase robot :follow)
                 (phase/tick-subphase robot :us-turning-condition)
+                (phase/tick-subphase robot :until-turning)
                 {:input {:ultrasonic-active? true}})]
-      (if (phase/phase-done? cmd :us-turning-condition)
+      (if (or (phase/phase-done? cmd :us-turning-condition)
+            (phase/phase-done? cmd :until-turning))
         (phase/mark-done
           (phase/merge-cmds cmd
-            {:state {:status :straightening
-                     :sub-phases {:follow {:high-power? false}}}
+            {:state {:status :straightening}
              :input {:ultrasonic-active? false}}))
         cmd))))
 
@@ -124,7 +137,7 @@
 (defphase up-to-ramp-find-turn
   :init {}
   :sub-phases
-  {:follow [biased-follow {:bias :left}]
+  {:follow [follow-correcting {:phase-decl [biased-follow {:bias :left}]}]
    :turn-us-condition [tracking-prolonged-condition
                        {:min-duration 400
                         :pred (fn [{:keys [readings]}]
@@ -145,15 +158,25 @@
   :init {}
   :sub-phases
   {:follow [basic-follow nil {:high-power? true}]
-   ; :until-turn [until-turning {:turn-direction :left}]
-   :until-straight [until-straight {:min-straight-duration 3000}]}
+   :us-condition
+   [tracking-prolonged-condition
+    {:min-duration 1500
+     :pred (fn [{:keys [readings]}]
+             (not (< 0 (rs/get-rear-ultrasonic readings) 1000)))}]
+   :until-straight [until-straight {:min-straight-duration 2500
+                                    :max-turn-rate 15}]}
   :tick
   (fn [{:as robot}]
     (let [cmd (phase/merge-cmds
                 (phase/tick-subphase robot :until-straight)
-                (phase/tick-subphase robot :follow))]
-      (if (phase/phase-done? cmd :until-straight)
-        (phase/mark-done cmd)
+                (phase/tick-subphase robot :us-condition)
+                (phase/tick-subphase robot :follow)
+                {:input {:ultrasonic-active? true}})]
+      (if (and (phase/phase-done? cmd :us-condition)
+            (phase/phase-done? cmd :until-straight))
+        (phase/mark-done
+          (phase/merge-cmds cmd
+            {:input {:ultrasonic-active? false}}))
         cmd))))
 
 (defphase up-to-ramp

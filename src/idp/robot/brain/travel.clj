@@ -104,7 +104,9 @@
                       :turn-direction :right}]})
   :tick
   (fn [{:keys [] :as robot}]
-    (let [cmd (phase/tick-subphase robot :find-junction)]
+    (let [cmd (phase/merge-cmds
+                (phase/tick-subphase robot :find-junction)
+                {:input {:grabber-position :open}})]
       (if (phase/phase-done? cmd :find-junction)
         (phase/mark-done cmd)
         cmd))))
@@ -163,8 +165,8 @@
       [[up-to-junction {:turn-direction turn-direction
                         :junction-number 1}]
        [junction-approach-turn {:turn-direction turn-direction
-                                :excess-coeff 1.6
-                                :turn-forward-speed -150}]
+                                :excess-coeff 1.35
+                                :turn-forward-speed -170}]
        [home-follow]]))
   :tick
   (fn [robot] (phase/tick-chain robot)))

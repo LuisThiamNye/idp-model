@@ -52,9 +52,9 @@
                 {:go-home? (not (reattempt-collection? merged-state))
                  :collection-target
                  (case (:collection-target merged-state)
-                   2 3
-                   3 1
-                   1 nil)}}})))
+                   2 1
+                   1 3
+                   3 nil)}}})))
 
 (defphase backup-from-box-turn
   :init {}
@@ -103,6 +103,13 @@
   :tick
   (fn [robot] (phase/tick-chain robot)))
 
+(defphase tunnel-dropoff-overshoot
+  :chain [[timed-straight {:duration 1600 :speed 180}]
+          [timed-straight {:duration 2600
+                           :speed 0 :turn-speed -150}]]
+  :tick
+  (fn [robot] (phase/tick-chain robot)))
+
 (defphase up-to-dropoff-box
   "Goes from tunnel up to one of the three junctions of a line box.
   Performs right-biased line following to ensure junction detection."
@@ -114,7 +121,7 @@
       {:min-duration 80
        :pred (fn [{:keys [readings]}]
                (<= 200 (rs/get-rear-ultrasonic readings) 500))}]
-     :overshoot [timed-straight {:duration 1600 :speed 180}]
+     :overshoot [tunnel-dropoff-overshoot]
      :find-box [up-to-junction
                 {:junction-number (case density
                                     :high 3 ;; red box

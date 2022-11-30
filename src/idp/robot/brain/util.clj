@@ -45,6 +45,7 @@
   "Line trigger = number of times line sensor has switched
   from seeing black to seeing white since the last response."
   [{:keys [line-switches] :as readings}]
+  {:pre [(map? readings)]}
   (let [line-sensor-readings (rs/get-line-sensors readings)]
     (mapv (fn [n]
             (let [white? (= :white (nth line-sensor-readings n))
@@ -108,7 +109,7 @@
   :init (fn [params]
           {:duration (:duration params)
            :speed (:speed params 200)
-           :turn-speed 0
+           :turn-speed (:turn-speed params 0)
            :time-elapsed 0})
   :tick
   (fn [{{:keys [speed] :as state} :state
@@ -148,7 +149,7 @@
   :tick
   (fn [{:keys [state readings]}]
     (let [{:keys [forward-speed]} state
-          turn-speed 150
+          turn-speed 160
           left? (= :left (:turn-direction state))
           turn-speed (cond-> turn-speed left? -)
           combined-line-readings
@@ -242,8 +243,8 @@
 (defphase until-turning
   "Infers, based on motor input, when robot starts turning"
   :init
-  (fn [{:keys [turn-direction]}]
-    {:min-turn-rate 17 ;; turn amount per active millisecond
+  (fn [{:keys [turn-direction min-turn-rate]}]
+    {:min-turn-rate (or min-turn-rate 17) ;; turn amount per active millisecond
      :turn-direction (enc/have #{:left :right :either} turn-direction)})
   :sub-phases
   {:turn [tracking-motor-turn-rate {:target-duration 700}]}

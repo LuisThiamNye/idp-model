@@ -123,8 +123,9 @@
   ([cmd] cmd)
   ([cmd1 cmd2]
    (-> (merge-with merge
-         cmd1 (dissoc cmd2 :state))
-     (assoc :state (merge-states (:state cmd1) (:state cmd2)))))
+         cmd1 (dissoc cmd2 :state :readings-history))
+     (assoc :state (merge-states (:state cmd1) (:state cmd2)))
+     (merge (select-keys cmd2 [:readings-history]))))
   ([cmd1 cmd2 & cmds]
    (reduce merge-cmds
      (merge-cmds cmd1 cmd2)
