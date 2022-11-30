@@ -157,7 +157,7 @@
 (defphase home-follow
   :init {:status :retreating}
   :sub-phases
-  {:retreat [timed-straight {:duration 500 :speed -255}]
+  {:retreat [timed-straight {:duration 200 :speed -255}]
    :follow [basic-follow]}
   :tick
   (fn [{:keys [readings state] :as robot}]
