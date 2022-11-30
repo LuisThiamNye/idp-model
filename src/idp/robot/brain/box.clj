@@ -53,7 +53,9 @@
                  :collection-target
                  (case (:collection-target merged-state)
                    2 1
-                   1 3
+                   ;; only go for two blocks
+                   ; 1 3
+                   1 nil
                    3 nil)}}})))
 
 (defphase backup-from-box-turn
