@@ -18,7 +18,8 @@
   bu/until-turning
   bu/straight-up-to-blackout
   follow/biased-follow
-  follow/basic-follow)
+  follow/basic-follow
+  follow/basic-follow-correcting)
 
 (defphase post-ramp-to-centre-block
   "Does right-biased line following up to central collection point."
@@ -78,7 +79,7 @@
   :sub-phases
   {:until-straight [until-straight {:min-straight-duration 400
                                     :max-turn-rate 60}]
-   :follow [basic-follow]}
+   :follow [basic-follow-correcting]}
   :tick
   (fn [{:as robot}]
     (let [cmd (phase/merge-cmds

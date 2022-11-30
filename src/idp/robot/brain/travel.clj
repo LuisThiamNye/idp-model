@@ -138,17 +138,34 @@
               :else false)])
       )))
 
+(defphase home-follow
+  :sub-phases
+  {:follow [basic-follow]}
+  :tick
+  (fn [{:keys [readings] :as robot}]
+    (let [cmd (phase/tick-subphase robot :follow)
+          done? (match (get-combined-line-readings readings)
+                  [:w :w :w _] true
+                  [_ :w :w :w] true
+                  :else false)]
+      (if done?
+        (phase/mark-done cmd)
+        cmd))))
+
 (defphase up-to-home-entry
   "Drives robot from a collection point up to the home junction,
   then spins it pointing towards the home box"
-  :chain 
+  :chain
   (fn [{:keys [density]}]
     (let [turn-direction (case density
                            :high :left
                            :low :right)]
       [[up-to-junction {:turn-direction turn-direction
                         :junction-number 1}]
-       [junction-approach-turn {:turn-direction turn-direction}]]))
+       [junction-approach-turn {:turn-direction turn-direction
+                                :excess-coeff 1.6
+                                :turn-forward-speed -150}]
+       [home-follow]]))
   :tick
   (fn [robot] (phase/tick-chain robot)))
 

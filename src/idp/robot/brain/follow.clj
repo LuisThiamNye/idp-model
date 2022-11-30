@@ -61,8 +61,10 @@
            ;; go straight if line lost when between sensors
            ;; - important for ramp
            [:left 1]  [:straight]; [:left 2]
+           [:left 2]  [:left 4]
            [:left 3]  [:left 4]
            [:right 1] [:straight];[:right 2]
+           [:right 2]  [:right 4]
            [:right 3] [:right 4]
            :else prev-intent)
          :else prev-intent)))})
@@ -78,6 +80,52 @@
         (if (:high-power? state)
           [[255 0] [255 30] [255 30] [0 255] [0 255]]
           [[255 0] [230 30] [80 150] [20 200] [0 200]])))))
+
+(defphase basic-follow-correcting
+  :init (fn [params]
+          {:blackout-duration 0
+           :min-blackout-duration 500 ;; time before reversing spin
+           :reversals 0
+           :multiplier 1
+           :correct-straight? (:correct-straight? params false) 
+           })
+  :sub-phases
+  (fn [params]
+    {:follow [basic-follow params]})
+  :tick
+  (fn [{:keys [readings state]
+        {:keys [blackout-duration min-blackout-duration reversals]} :state
+        :as robot}]
+    (let [blackout? (= [:b :b :b :b] (get-combined-line-readings readings))
+          blackout-duration (if blackout?
+                              (+ blackout-duration (rs/get-active-dt readings))
+                              0)
+          cmd (phase/merge-cmds
+                (phase/tick-subphase robot :follow)
+                {:state {:blackout-duration blackout-duration}})
+          [follow-dir follow-level] (get-in cmd [:state :sub-phases :follow :follow-intent])
+          thres (* (:multiplier state)
+                (cond-> min-blackout-duration
+                  (pos? reversals) (* 2)))]
+      (cond
+        (and
+          (or (= 4 follow-level)
+            (and (:correct-straight? state) (= :straight follow-dir)))
+          (<= thres blackout-duration))
+        (do (prn thres)
+          (phase/merge-cmds
+           (assoc-in cmd [:state :sub-phases :follow :follow-intent]
+             [(case follow-dir :left :right :right :left :straight :left) 4])
+           {:state {:reversals (cond-> reversals (not= :straight follow-dir) inc)
+                    :blackout-duration 0
+                    :multiplier (min 10 (+ 1 (* 0.3 (inc reversals))))}}))
+        
+        (and (pos? reversals) (not blackout?))
+        (phase/merge-cmds cmd
+          {:state {:reversals 0
+                   :multiplier 1}})
+        
+        :else cmd))))
 
 (def biased-follow-strategy
   {:intent-fn
