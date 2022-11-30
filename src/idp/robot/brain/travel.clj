@@ -140,7 +140,7 @@
               :else false)])
       )))
 
-(defphase home-follow
+#_(defphase home-follow
   :sub-phases
   {:follow [basic-follow]}
   :tick
@@ -153,6 +153,30 @@
       (if done?
         (phase/mark-done cmd)
         cmd))))
+
+(defphase home-follow
+  :init {:status :retreating}
+  :sub-phases
+  {:retreat [timed-straight {:duration 500 :speed -255}]
+   :follow [basic-follow]}
+  :tick
+  (fn [{:keys [readings state] :as robot}]
+    (let [cmd (phase/merge-cmds
+                (phase/tick-subphase robot :follow)
+                (when (= :retreating (:status state))
+                  (phase/tick-subphase robot :retreat)))
+          done? (and (= :following (:status state))
+                  (match (get-combined-line-readings readings)
+                    [:w :w :w _] true
+                    [_ :w :w :w] true
+                    :else false))]
+      (if done?
+        (phase/mark-done cmd)
+        (if (and (= :retreating (:status state))
+              (phase/phase-done? cmd :retreat))
+          (phase/merge-cmds cmd
+            {:state {:status :following}})
+          cmd)))))
 
 (defphase up-to-home-entry
   "Drives robot from a collection point up to the home junction,
