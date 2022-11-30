@@ -45,35 +45,14 @@
             (ui/button
               (fn []
                 (loopth/start-loop! client-loop)
-                
                 (swap! (:*state robot)
                   (fn [state]
                     (-> state
                       (assoc :auto? true)
+                      (assoc :phase (phase/get-initial-state
+                                      (phase/lookup-phase :full-run)))
                       (phase/initialise-phase-on-state
-                        (phase/lookup-phase :exit-start)))))
-                (swap! (:*state robot) assoc :next-phase-map
-                  {:exit-start :exit-start-turn
-                   ; :exit-start-turn :start-to-centre-block
-                   :exit-start-turn :start-to-centre-block-tunnel
-                   [:start-to-centre-block-tunnel] :detect-block
-                   :start-to-centre-block :detect-block
-                   :detect-block :centre-block-180
-                   :centre-block-180 :tunnel-approach
-                   :tunnel-approach :through-tunnel
-                   :through-tunnel :up-to-box
-                   :up-to-box :box-approach-turn
-                   :box-approach-turn :box-approach-turn-spin
-                   :box-approach-turn-spin :box-approach-edge
-                   :box-approach-edge :backup-from-box
-     
-                   [:backup-from-box {:go-home? true}] :up-to-home-entry
-                   :up-to-home-entry :align-to-home
-     
-                   [:backup-from-box {:go-home? false}] :start-to-centre-block
-                   }
-                  )
-                )
+                        (phase/lookup-phase :exit-start))))))
               (ui/label "Start"))
             (ui/gap 0 3)
             (ui/button

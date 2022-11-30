@@ -276,7 +276,9 @@
              (ui/dynamic ctx
                [{:keys [dt]} (peek (:readings-history
                                      (:robot-state ctx)))]
-               (ui/label (str dt " ms")))]
+               (ui/label (if dt
+                           (str (format "%.1f" (double dt)) " ms")
+                           "-")))]
             (ui/column
               ui-latency
               (ui/gap 0 5)
@@ -325,7 +327,8 @@
              (ui/label (str "(top " (int (/ (:height latency-graph-bounds) px-per-t))
                          " ms"
                          (when (< 0 (count visible-history))
-                           (str ", " min-t "–" max-t " ms"))
+                           (str ", " (format "%.1f" (double min-t))
+                             "–" (format "%.1f" (double max-t)) " ms"))
                          ")")))
            (ui/dynamic _
              [ui-latency-graph-overlay ui-latency-graph-overlay]
@@ -402,10 +405,9 @@
               (read-string (str "[" text "]")))
             phase-id (keyword sym)]
         (swap! (:*state robot) assoc :phase
-          (assoc (phase/merge-states
-                   (phase/get-initial-state (phase/lookup-phase phase-id) params)
-                   overlap)
-            :phase-id phase-id))
+          (phase/merge-states
+            (phase/get-initial-state (phase/lookup-phase phase-id) params)
+            overlap))
         (phase-select-add-history! text))
       (catch Exception e
         (println "Failed to set phase-id" e)))))
@@ -456,13 +458,7 @@
           (ui/label "Go"))))))
 
 (def ui-raw-state-display
-  (let [#_#_fmt-data #(zprint.core/zprint-str %
-                      {:map {:justify? true
-                             :justify {:max-variance 20}
-                             :key-ignore [:history]
-                             }
-                       :width 80})
-        fmt-data #(puget/pprint-str %
+  (let [fmt-data #(puget/pprint-str %
                     {:width 60
                      :coll-limit 7
                      :map-coll-separator :line})]
@@ -489,8 +485,8 @@
         [state (:robot-state ctx)]
         (multiline-label
           (fmt-data (:phase state))))
-      (ui/gap 0 8)
-      (ui/dynamic ctx
+      #_(ui/gap 0 8)
+      #_(ui/dynamic ctx
         [input (:robot-input ctx)]
         (multiline-label
           (fmt-data (dissoc input :motor-1 :motor-2
@@ -561,7 +557,18 @@
                           (case grabber-position
                             :open "open"
                             :closed "closed"
-                            "?"))))))))))
+                            "?")))))))
+      (ui/gap 5 0)
+      (ui/dynamic ctx
+        [{{:keys [ultrasonic-active?]} :robot-input
+          :keys [robot]} ctx]
+        (ui/valign 0.5
+          (ui/button
+            (fn []
+              (swap! (:*input robot) update
+                :ultrasonic-active? not))
+            (ui/label (str "Ultrasonic: "
+                        ultrasonic-active?))))))))
 
 (def ui-mainpage
   (ui/dynamic _ [ui-motors ui-motors

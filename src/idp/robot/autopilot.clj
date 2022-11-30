@@ -1,7 +1,7 @@
 (ns idp.robot.autopilot
   (:require
     [idp.loopthread :as loopth]
-    [idp.robot.brain.travel :as travel]
+    [idp.robot.brain.core :as brain]
     [idp.net.api :as net.api]
     [idp.robot.client :as client]
     [idp.robot.brain.phase :as phase]
@@ -39,7 +39,7 @@
         (when (:auto? @*state)
           (let [readings @*readings]
             (swap! (:*input robot) merge
-              (travel/tick! *state readings @(:*input robot)))))))))
+              (brain/tick! *state readings @(:*input robot)))))))))
 
 (defn tick-fn [params]
   #(tick! params %))

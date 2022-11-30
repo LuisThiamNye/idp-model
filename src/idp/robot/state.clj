@@ -53,6 +53,7 @@
   {:line-sensors [:black :black :black :black]
    :line-switches [0 0 0 0]
    :grabber-moving? false
+   :block-density nil
    :ultrasonic-1 0
    :ultrasonic-2 0})
 
@@ -71,19 +72,6 @@
   (reset! *readings initial-readings)
   (reset! *state initial-state)
   (reset! *input initial-input))
-
-(comment
-  @(:*readings sim-robot)
-  @(:*input robot1)
-  
-  (reset-robot! net-robot)
-  (reset-robot! sim-robot)
-  
-  ;; see if a line sensor ever saw black or not
-  (distinct
-    (mapv :line-sensor-3
-      (:readings-history @(:*state net-robot))))
-  )
 
 (defn get-line-sensors
   "Returns readings of line sensors in the order they exist on the
@@ -104,3 +92,9 @@
   May be an estimation"
   [readings]
   (min (:dt readings) robot.params/rc-timeout))
+
+(defn get-left-ultrasonic [readings]
+  (:ultrasonic-1 readings))
+
+(defn get-rear-ultrasonic [readings]
+  (:ultrasonic-2 readings))

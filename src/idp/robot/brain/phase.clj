@@ -11,32 +11,37 @@
     @vr
     (throw (ex-info (str "Could not resolve phase: " (pr-str id)) {}))))
 
-(defmacro defphase [sym & args]
+(defmacro defphase [phase-sym & args]
   (let [?doc (first args)
         ?doc (when (string? ?doc) ?doc)
-        [& {:keys [init tick sub-phases]}] (cond-> args ?doc next)
-        id (keyword sym)
-        statedecl->fn (fn [decl]
-                        (if (and (seq? decl)
-                              (= 'fn (first decl)))
-                          decl
-                          `(fn [_#] ~decl)))]
+        [& {:keys [init tick sub-phases chain]}] (cond-> args ?doc next)
+        id (keyword phase-sym)
+        statedecl->fn (fn [label decl]
+                        (let [sym (symbol (str phase-sym ":" label))]
+                          (if (and (seq? decl)
+                                (= 'fn (first decl)))
+                            (list* 'fn sym (next decl))
+                            `(fn ~sym [_#] ~decl))))]
     `(swap! *phase-registry assoc ~id
-       (def ~sym
+       (def ~phase-sym
          ~@(when ?doc [?doc])
          ~(cond->
             {:id id
-             :initial-state-fn (statedecl->fn init)
-             :tick-fn `(fn ~(symbol (str sym ":tick")) ~@(rest tick))}
+             :initial-state-fn (if init (statedecl->fn "init" init) {})
+             :tick-fn `(fn ~(symbol (str phase-sym ":tick")) ~@(rest tick))}
             sub-phases
-            (assoc :sub-phases-fn (statedecl->fn sub-phases)))))))
+            (assoc :sub-phases-fn (statedecl->fn "sub-phases" sub-phases))
+            chain
+            (assoc :chain-fn (statedecl->fn "chain" chain)))))))
 
 (defn get-initial-state
   ([phase] (get-initial-state phase nil))
   ([phase params]
    (let [{:keys [initial-state-fn
                  initial-state
-                 sub-phases-fn]} phase
+                 sub-phases-fn
+                 chain-fn
+                 id]} phase
          state (or initial-state
                  (initial-state-fn params))
          subphases
@@ -49,16 +54,28 @@
                            "\nFor params: " (pr-str params)))))
              (fn [[phase params merged-state]]
                (merge (get-initial-state phase params)
-                 {:phase-id (:id phase)}
                  merged-state))))]
-     (cond-> state
+     (cond-> (assoc state :phase-id id)
        subphases
-       (assoc :sub-phases subphases)))))
+       (assoc :sub-phases subphases)
+       chain-fn
+       (assoc :phase/chain
+         (let [chain-decl (chain-fn params)]
+           {:current-id 0
+            :next-phase-map
+            (conj (vec (map-indexed (fn [idx decl]
+                                      (assoc decl 0 (inc idx)))
+                         (drop 1 chain-decl)))
+              ;; return nil for final phase
+              nil)
+            :id->phase-id (mapv (fn [[phase]]
+                                  (:id phase))
+                            chain-decl)
+            :phases {0 (let [[phase params] (nth chain-decl 0)]
+                         (get-initial-state phase params))}}))))))
 
 (defn initialise-state [phase state]
-  (merge state
-    (assoc (get-initial-state phase)
-      :phase-id (:id phase))))
+  (merge state (get-initial-state phase)))
 
 (defn initialise-phase-on-state [state phase]
   (initialise-state phase state))
@@ -72,32 +89,18 @@
 (defn phase-done?
   ([{:keys [state]} nest-key]
    (phase-done? {:state (enc/have map?
-                          (or (get-in state [:sub-states nest-key])
-                            (get-in state [:sub-phases nest-key])))}))
+                          (get-in state [:sub-phases nest-key]))}))
   ([{:keys [state]}]
    (:phase/done? state)))
 
 (defn merge-states [state1 state2]
-  (cond-> (merge state1 (dissoc state2 :sub-states :sub-phases))
-    (:sub-states state2)
-    (assoc :sub-states
-      (merge-with merge (:sub-states state1) (:sub-states state2)))
+  (cond-> (merge state1 (dissoc state2 :sub-phases))
     (:sub-phases state2)
     (assoc :sub-phases
       (merge-with merge (:sub-phases state1) (:sub-phases state2)))))
 
-(defn tick-nested [phase nest-key robot]
-  (let [parent-state (:state robot)
-        {:keys [sub-states]} parent-state
-        _ (assert (contains? sub-states nest-key)
-            (str nest-key " does not exist"))
-        sub-state (-> sub-states nest-key)
-        nested-cmd ((:tick-fn phase) (assoc robot :state sub-state))]
-    (update nested-cmd :state
-      (fn [sub-state2]
-        {:sub-states
-         (assoc {}
-           nest-key (merge-states sub-state sub-state2))}))))
+(defn tick-phase [phase robot]
+  ((:tick-fn phase) (assoc robot :phase phase)))
 
 (defn tick-subphase [robot nest-key]
   (let [parent-state (:state robot)
@@ -106,7 +109,7 @@
             (str nest-key " does not exist in " (pr-str (:phase-id parent-state))))
         sub-state (-> sub-phases nest-key)
         _ (assert (map? sub-state))
-        nested-cmd ((:tick-fn (lookup-phase (:phase-id sub-state)))
+        nested-cmd (tick-phase (lookup-phase (:phase-id sub-state))
                     (assoc robot
                       :state sub-state
                       :merged-state (merge (:merged-state robot) sub-state)))]
@@ -115,9 +118,6 @@
         {:sub-phases
          (assoc {}
            nest-key (merge-states sub-state sub-state2))}))))
-
-(defn get-nested-state [{:keys [state]} nest-key]
-  (get (:sub-states state) nest-key))
 
 (defn merge-cmds
   ([cmd] cmd)
@@ -131,49 +131,65 @@
      cmds)))
 
 (defn tick-mapped-phase-group
-  [robot state-key transition-fn]
+  [robot state-key post-tick-fn]
   (let [parent-state (:state robot)
-        {:keys [current-id phases next-phase-map]}
+        {:keys [current-id phases next-phase-map]
+         :as group-state}
         (state-key parent-state)
-        substate1 (current-id phases)
-        current-phase-id (:phase-id substate1 current-id)
-        current-phase (lookup-phase current-phase-id)
+        substate1 (get phases current-id)
         merged-state (:merged-state robot)
-        init-state
-        (when (nil? substate1)
-          (assoc (get-initial-state current-phase merged-state)
-            :phase-id current-phase-id))
-        state (merge substate1 init-state)
-        {substate2 :state
-         :as cmd} ((:tick-fn current-phase)
-                   (assoc robot
-                     :state state
-                     :merged-state (merge merged-state state)))
-        substate2 (merge-states init-state substate2)
-        next-phase-id (or (if (phase-done? cmd)
-                            (next-phase-map current-phase-id)
-                            current-phase-id)
-                        :stop)
-        [next-phase-id merged-state]
-        (if (vector? next-phase-id)
-          [(nth next-phase-id 0)
-           (merge merged-state (nth next-phase-id 1))]
-          [next-phase-id merged-state])
-        state2 (update-in parent-state
-                 [state-key :phases current-id] merge-states substate2)
-        cmd (merge-cmds robot
-              (transition-fn robot (assoc cmd :state state2)))]
-    (cond
-      ;; if transitioning to a new phase, run it immediately
-      (not= current-phase-id next-phase-id)
-      (do
-        (println "Transition: " current-phase-id " -> " next-phase-id)
-        (recur
-          (-> cmd
-            (assoc :merged-state (merge-states merged-state (:state cmd)))
-            (assoc-in [:state state-key :current-id] next-phase-id)
-            (update-in [:state state-key :phases] dissoc current-id))
-          state-key
-          transition-fn))
-      :else
-      cmd)))
+        id->phase-id (:id->phase-id group-state identity)
+        current-phase-id (:phase-id substate1
+                           (id->phase-id current-id))
+        current-phase (lookup-phase current-phase-id)
+        substate1
+        (or substate1
+          (get-initial-state current-phase
+            (merge merged-state (:init-params robot))))
+        sub-cmd
+          (tick-phase current-phase
+            (assoc robot
+              :state substate1
+              :merged-state (merge merged-state substate1)))
+        cmd (post-tick-fn robot
+              (merge-cmds
+                (dissoc sub-cmd :state)
+                {:state {state-key
+                         (assoc-in group-state [:phases current-id]
+                           (merge-states substate1 (:state sub-cmd)))}}))
+        robot2 (merge-cmds robot cmd)]
+    (if-some [next-id-decl (if (phase-done? sub-cmd)
+                              (next-phase-map current-id)
+                              current-id)]
+      (let [[next-id init-params]
+            (if (vector? next-id-decl)
+              next-id-decl
+              [next-id-decl nil])]
+        (cond
+          ;; if transitioning to a new phase, run it immediately
+          (not= current-id next-id)
+          (let [robot2 (-> robot2
+                         (assoc-in [:state state-key :current-id] next-id)
+                         (update-in [:state state-key :phases] dissoc current-id))
+                next-phase-id (id->phase-id next-id)]
+            (println "Transition: " current-id
+              (when (not= current-id current-phase-id)
+                (str " (" current-phase-id ")")) " -> " next-id
+              (when (not= next-id next-phase-id)
+                (str " (" next-phase-id ")")))
+            (recur
+              (assoc robot2
+                :merged-state (merge merged-state (:state robot2))
+                :init-params init-params)
+              state-key
+              post-tick-fn))
+          :else
+          robot2))
+      ;; Done if no subsequent phase is mapped
+      (mark-done robot2))))
+
+(defn tick-chain
+  ([robot] (tick-chain robot nil))
+  ([robot {:keys [post-tick-fn]}]
+   (tick-mapped-phase-group robot :phase/chain
+     (or post-tick-fn (fn [_ cmd] cmd)))))
