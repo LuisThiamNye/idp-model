@@ -67,11 +67,11 @@
   "Attempts to connect the socket, returning true if successful"
   [^String hostname ^Long port ^Socket socket]
   (try
-    (println "Net: Connecting to " hostname ":" port)
+    ; (println "Net: Connecting to " hostname ":" port)
     (.connect socket
       (InetSocketAddress. hostname port)
       socket-connect-timeout)
-    (println "Net:    successful connection")
+    ; (println "Net:    successful connection")
     true
     (catch SocketException e
       (if (Thread/interrupted)

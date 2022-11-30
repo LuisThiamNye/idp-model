@@ -78,7 +78,7 @@
   :sub-phases
   {:until-straight [until-straight {:min-straight-duration 400
                                     :max-turn-rate 60}]
-   :follow [biased-follow {:bias :left}]}
+   :follow [basic-follow]}
   :tick
   (fn [{:as robot}]
     (let [cmd (phase/merge-cmds

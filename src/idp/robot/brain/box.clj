@@ -29,15 +29,19 @@
 (defn reattempt-collection?
   "After dropping off block, decides whether to try collecting another
   block or to go back home"
-  [{:keys [competition-start-time collection-target] :as _merged-state}]
-  (and collection-target
-    (let [min-collect-duration (* 1.7 60 1000)
-          competition-duration (* 5 60 1000) ;; 5 mins
-          time-passed (- (System/currentTimeMillis) competition-start-time)
-          time-remaining (- competition-duration time-passed)
-          result (<= min-collect-duration time-remaining)]
-      (println "Reattempt: " result " (remaining: " time-remaining ")")
-      result)))
+  [{:keys [competition-start-time collection-target force-home?] :as _merged-state}]
+  (if force-home?
+    (do (println "Not reattemting due to force option")
+      false)
+    (and collection-target
+      (let [min-collect-duration (* 1 60 1000)
+            competition-duration (* 5 60 1000) ;; 5 mins
+            time-passed (- (System/currentTimeMillis) competition-start-time)
+            time-remaining (- competition-duration time-passed)
+            result (<= min-collect-duration time-remaining)]
+        (println "Reattempt: " result
+          " (remaining: " (long (/ time-remaining 1000)) " s)")
+        result))))
 
 (defphase decide-next-target
   "After having dropped off a block, decides where the robot should go next"

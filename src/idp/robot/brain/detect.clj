@@ -66,3 +66,8 @@
                  (phase/merge-cmds cmd
                    {:state {:density density}})
                  cmd))})))
+
+(defphase show-density-live
+  :tick
+  (fn [{:keys [readings]}]
+    {:input {:signal-block-density (:block-density readings)}}))

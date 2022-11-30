@@ -56,7 +56,7 @@
   :sub-phases
   {:us-turning-condition
    [tracking-prolonged-condition
-    {:min-duration 300
+    {:min-duration 80
      :pred (fn [{:keys [readings]}]
              (<= 200 (rs/get-rear-ultrasonic readings) 500))}]
    :overshoot [timed-straight {:duration 2000 :speed 180}]
@@ -74,7 +74,9 @@
             [:w _  _ _] true
             [_ :w  _ _] true
             :else false))
-        (phase/mark-done cmd)
+        (phase/mark-done
+          (phase/merge-cmds cmd
+            {:input {:ultrasonic-active? false}}))
         
         (or (= overshoot-status :doing)
           (and (= overshoot-status :finding)

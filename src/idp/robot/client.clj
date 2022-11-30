@@ -106,7 +106,7 @@
             (< response-timeout
               (- (System/currentTimeMillis) req-time))))
         (do
-          (println "client: Response timed out!")
+          ; (println "client: Response timed out!")
           (swap! *req-status update :requests-dropped inc)
           (reset-connection! client conn)
           nil)))
