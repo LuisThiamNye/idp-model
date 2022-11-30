@@ -246,5 +246,3 @@
                    (if (= [:b :b :b :b] combined-readings)
                      (+ blackout-duration (rs/get-active-dt readings))
                      0)}})))))
-
-;; TODO FIND LINE
