@@ -1,8 +1,7 @@
 (ns idp.robot.brain.travel
+  "Miscellaneous phases"
   (:require
     [taoensso.encore :as enc]
-    [idp.board.params :as board.params]
-    [idp.robot.params :as robot.params]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
     [chic.util.ns :refer [inherit-vars]]
@@ -44,6 +43,8 @@
         cmd))))
 
 (defphase collect-from-junction
+  "Turns the robot from the main line and drives it up to the end
+  of the branch line where the block is."
   :chain
   [[junction-approach-turn {:turn-direction :right
                             :turn-forward-speed -150
@@ -52,12 +53,16 @@
   :tick (fn [robot] (phase/tick-chain robot)))
 
 (defphase post-tunnel-collect-turn
+  "Handles the curved line after the tunnel, when approaching the collection point.
+  By overshooting, this helps attain a better angle that makes detecting junctions
+  more reliable."
   :init {:overshoot-status :finding}
   :sub-phases
   {:us-turning-condition
    [tracking-prolonged-condition
     {:min-duration 80
      :pred (fn [{:keys [readings]}]
+             ;; this condition implies we have started turning at the curved line
              (<= 200 (rs/get-rear-ultrasonic readings) 500))}]
    :overshoot [timed-straight {:duration 2000 :speed 180}]
    :follow [biased-follow {:bias :right}]}
@@ -112,6 +117,8 @@
         cmd))))
 
 (defphase post-tunnel-to-collect
+  "Brings the robot from the end of the tunnel up to the junction
+  of the next block to be collected."
   :chain (fn [{:keys [collection-target]}]
            [[post-tunnel-collect-turn]
             [up-to-collect {:collection-target collection-target}]])
@@ -121,40 +128,16 @@
 ;; Home
 
 (defphase finalise-home
+  "Final manoeuvre that drives the robot from the edge of the home box
+  and positions it within the bounds of the box.
+  Involves a collision with the wall, followed by a small retreat, to
+  decrease error."
   :chain [[timed-straight {:duration 4000 :speed 255}]
           [timed-straight {:duration 1700 :speed -100}]]
   :tick (fn [robot] (phase/tick-chain robot)))
 
-#_(defphase align-to-home
-  "Takes a robot on the home path up to the edge of the home box,
-  aligning it so it is as straight as possible"
-  :init {:sub-status :find-edge}
-  :tick
-  (fn [{:keys [state readings]}]
-    (case (:sub-status state)
-      :find-edge
-      (let [found-edge?
-            (match (get-combined-line-readings readings)
-              [_ :w :w :w] true
-              [:w :w :w _] true
-              :else false)])
-      )))
-
-#_(defphase home-follow
-  :sub-phases
-  {:follow [basic-follow]}
-  :tick
-  (fn [{:keys [readings] :as robot}]
-    (let [cmd (phase/tick-subphase robot :follow)
-          done? (match (get-combined-line-readings readings)
-                  [:w :w :w _] true
-                  [_ :w :w :w] true
-                  :else false)]
-      (if done?
-        (phase/mark-done cmd)
-        cmd))))
-
 (defphase home-follow
+  "Does line following along the path up to the edge of the home box"
   :init {:status :retreating}
   :sub-phases
   {:retreat [timed-straight {:duration 200 :speed -255}]
@@ -194,25 +177,3 @@
        [home-follow]]))
   :tick
   (fn [robot] (phase/tick-chain robot)))
-
-
-#_(defphase centre-block-180
-  :init {:nturns 0}
-  :sub-phases
-  {:turn1 [timed-straight nil {:duration 2000
-                               :speed 0
-                               :turn-speed 200}]
-   :turn2 [junction-turn-spin nil {:turn-direction :right}]}
-  :tick
-  (fn [{:keys [state] :as robot}]
-    (let [nturns (:nturns state)
-          first? (= 0 nturns)
-          ss (if first? :turn1 :turn2)
-          cmd (if first?
-                (phase/tick-subphase robot :turn1)
-                (phase/tick-subphase robot :turn2))]
-      (if (phase/phase-done? cmd ss)
-        (if first?
-          (update cmd :state assoc :nturns (inc nturns))
-          (phase/mark-done cmd))
-        cmd))))

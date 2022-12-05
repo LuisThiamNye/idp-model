@@ -41,14 +41,3 @@
 
 (def responder
   (loopth/make-loop #'tick!))
-
-(comment
-  (loopth/start-loop! responder)
-  (loopth/stop-loop! responder)
-  
-  (do
-    (.close @*client)
-    (.close server-socket))
-  
-  
-  )

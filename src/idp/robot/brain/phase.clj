@@ -1,4 +1,5 @@
 (ns idp.robot.brain.phase
+  "Infrastructure for the state machine."
   (:require
     [taoensso.encore :as enc]))
 
@@ -11,7 +12,25 @@
     @vr
     (throw (ex-info (str "Could not resolve phase: " (pr-str id)) {}))))
 
-(defmacro defphase [phase-sym & args]
+(defmacro defphase
+  "Registers a phase (a state of the state machine).
+  The phase will be registered with an ID that is a keyword
+  of the same name as the specified var name.
+  A docstring may be provided after the var symbol.
+  Options that can be specified:
+  :tick-fn (compulsory)
+    A function that takes a single argument of the robot information
+    where the value at :state is the phase state. Other useful keys
+    include :readings, :input, :merged-state, :readings-history
+  :init
+    A map of the initial state, or a function that initialises it from a
+    single map argument. Even if declaring as a map, the expression will
+    be evaluated each time the phase is initialised.
+  :sub-phases
+    A map to declare sub-phases that will be nested in this phase.
+  :chain
+    A vector of sub-phases that are meant to be run in sequence."
+  [phase-sym & args]
   (let [?doc (first args)
         ?doc (when (string? ?doc) ?doc)
         [& {:keys [init tick sub-phases chain]}] (cond-> args ?doc next)
@@ -77,12 +96,6 @@
 (defn initialise-state [phase state]
   (merge state (get-initial-state phase)))
 
-(defn initialise-phase-on-state [state phase]
-  (initialise-state phase state))
-
-(defn init-phase-id-on-state [state phase-id]
-  (initialise-state (lookup-phase phase-id) state))
-
 (defn mark-done [cmd]
   (update cmd :state assoc :phase/done? true))
 
@@ -120,6 +133,7 @@
            nest-key (merge-states sub-state sub-state2))}))))
 
 (defn merge-cmds
+  "Merges the results of phases"
   ([cmd] cmd)
   ([cmd1 cmd2]
    (-> (merge-with merge
@@ -132,6 +146,11 @@
      cmds)))
 
 (defn tick-mapped-phase-group
+  "Handles a group of phases where a mapping is specified
+  that defines what phase comes after the phase that completed.
+  After a phase completees, the tick function of the next
+  phase will be executed within the same cycle (without needing
+  to call this function again)."
   [robot state-key post-tick-fn]
   (let [parent-state (:state robot)
         {:keys [current-id phases next-phase-map]
@@ -190,6 +209,7 @@
       (mark-done robot2))))
 
 (defn tick-chain
+  "Handles the specified :chain of sub-phases"
   ([robot] (tick-chain robot nil))
   ([robot {:keys [post-tick-fn]}]
    (tick-mapped-phase-group robot :phase/chain

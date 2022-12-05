@@ -1,4 +1,5 @@
 (ns idp.robot.brain.box
+  "Phases involved with dropping off a block in its correct box"
   (:require
     [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
@@ -28,7 +29,9 @@
 
 (defn reattempt-collection?
   "After dropping off block, decides whether to try collecting another
-  block or to go back home"
+  block or to go back home.
+  Will go home if no block collection target is set, or the remaining
+  time is below a certain threshold."
   [{:keys [competition-start-time collection-target force-home?] :as _merged-state}]
   (if force-home?
     (do (println "Not reattemting due to force option")
@@ -59,6 +62,7 @@
                    3 nil)}}})))
 
 (defphase backup-from-box-turn
+  "Performs the 90° turn after backing up from the delivery box"
   :init {}
   :sub-phases
   (fn [{:keys [go-home? density]}]
@@ -76,6 +80,8 @@
         cmd))))
 
 (defphase backup-from-box-blackout-retreat
+  "Initial part of backing up from the delivery box:
+  go backwards until the edge of the box is found."
   :tick
   (fn [{:keys [readings]}]
     (let [ls (get-combined-line-readings readings)]
@@ -106,6 +112,9 @@
   (fn [robot] (phase/tick-chain robot)))
 
 (defphase tunnel-dropoff-overshoot
+  "Moves straight forwards then turns.
+  This phase is used to achieve a better angle when
+  approaching the junctions, to make detecting them more reliable"
   :chain [[timed-straight {:duration 1600 :speed 180}]
           [timed-straight {:duration 2600
                            :speed 0 :turn-speed -150}]]
@@ -122,6 +131,8 @@
      [tracking-prolonged-condition
       {:min-duration 80
        :pred (fn [{:keys [readings]}]
+               ;; test for when the ultrasonic sees the wall, suggesting
+               ;; we have started to turn
                (<= 200 (rs/get-rear-ultrasonic readings) 500))}]
      :overshoot [tunnel-dropoff-overshoot]
      :find-box [up-to-junction

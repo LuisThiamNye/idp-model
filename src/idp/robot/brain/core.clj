@@ -16,8 +16,6 @@
                       :post-ramp-to-centre-block :detect-block
                       :detect-block :up-to-tunnel-end}
       common-phases {:decide-next-target :backup-from-box-turn
-                     :post-tunnel-to-collect :collect-from-junction
-                     
                      :up-to-home-entry :finalise-home}
       collect->box-phases {:up-to-tunnel-end :up-to-dropoff-box
                            :up-to-dropoff-box [:junction-approach-turn {:turn-direction :right}]
@@ -31,6 +29,7 @@
                                :detect-block :branch-to-main
                                :branch-to-main :up-to-tunnel-end}]
   (defphase full-run
+    "Performs the entire competition task and manages common state"
     :init
     (fn [{:keys [id pm]}]
       {:competition-start-time (System/currentTimeMillis)
@@ -47,16 +46,20 @@
       (phase/tick-mapped-phase-group robot :nest
         (fn [_robot {{:keys [block-detected next-target]} :output
                      :as cmd}]
+          ;; Update the root state when an output is received from
+          ;; a sub-phase
           (cond-> cmd
-            block-detected
+            block-detected ;; see phase :measure-density
             (as-> cmd
               (update cmd :state
                 (fn [state2]
                   (-> state2
                     (assoc :density (:density block-detected))
+                    ;; enqueue the sequence of phases to take the robot to the
+                    ;; delivery point
                     (update-in [:nest :next-phase-map] merge collect->box-phases)))))
         
-            next-target
+            next-target ;; see phase :decide-next-target
             (as-> cmd
               (let [{:keys [go-home? collection-target]} next-target
                     go-home? (or (nil? collection-target) go-home?)]
@@ -65,6 +68,8 @@
                     (-> state2
                       (assoc :go-home? go-home?)
                       (assoc :collection-target collection-target)
+                      ;; enqueue the seqence of phases to take the robot to
+                      ;; its next target
                       (update-in [:nest :next-phase-map] merge
                         (if go-home?
                           {:backup-from-box-turn :up-to-home-entry}

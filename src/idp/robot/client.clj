@@ -8,7 +8,6 @@
   "After this many milliseconds waiting for a reponse,
   attempt to reset the connection."
   160)
-; (def response-timeout ##Inf)
 
 ;; One client per socket connection
 (defprotocol Connection
@@ -106,7 +105,6 @@
             (< response-timeout
               (- (System/currentTimeMillis) req-time))))
         (do
-          ; (println "client: Response timed out!")
           (swap! *req-status update :requests-dropped inc)
           (reset-connection! client conn)
           nil)))
@@ -122,20 +120,24 @@
 
 (defn reset-readings [prev-readings readings input]
   {:post [(= 4 (count (:line-switches %)))]}
-  ;; ensure that :line-switches is consistent with previous readings
-  (cond->
-    (assoc readings :line-switches
-     (mapv (fn [prev-ls nswitches ls]
-             (let [expected-change? (odd? nswitches)
-                   change? (not= prev-ls ls)]
-               (cond-> nswitches
-                 (not= change? expected-change?)
-                 inc)))
-       (:line-sensors prev-readings [:black :black :black :black])
-       (:line-switches readings)
-       (:line-sensors readings)))
-    (not (:ultrasonic-active? input))
-    (assoc :ultrasonic-1 0 :ultrasonic-2 0)))
+  (-> readings
+    ;; ensure that :line-switches is consistent with previous readings
+    ;; by incrementing them if necessary
+    (assoc :line-switches
+      (mapv (fn [prev-ls nswitches ls]
+              (let [expected-change? (odd? nswitches)
+                    change? (not= prev-ls ls)]
+                (cond-> nswitches
+                  (not= change? expected-change?)
+                  inc)))
+        (:line-sensors prev-readings [:black :black :black :black])
+        (:line-switches readings)
+        (:line-sensors readings)))
+    ;; Set ultrasonic readings to zero (invalid) if Arduino was not
+    ;; requested to take those readings. This prevents misleading the
+    ;; navigation logic
+    (cond-> (not (:ultrasonic-active? input))
+      (assoc :ultrasonic-1 0 :ultrasonic-2 0))))
 
 (defn sync!
   "Main function that should get executed each clock cycle

@@ -5,7 +5,7 @@
   "Like clojure.core/promise, but exceptions computing the result
   may be delivered and thrown upon dereferencing.
 
-  Safe to substitute in place of a clojure.core/promise."
+  Can substitute for clojure.core/promise."
   []
   (let [latch (java.util.concurrent.CountDownLatch. 1)
         *success (volatile! false)
@@ -37,8 +37,10 @@
           (.countDown latch)
           self)))))
 
-(defn deliver [p v] (p v true))
-(defn deliver-ex [p ex] (p ex false))
+(defn deliver "Deliver a successful value to a promise"
+  [p v] (p v true))
+(defn deliver-ex "Deliver an exception to a promise"
+  [p ex] (p ex false))
 
 (defmacro delivering-to
   "Delivers the result of the body to the promise,

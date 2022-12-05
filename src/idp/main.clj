@@ -10,6 +10,7 @@
   (:import
     (java.util.concurrent Executors)))
 
+;; Configure Clojure to use virtual threads for futures and agents
 (set-agent-send-executor!
   (Executors/newVirtualThreadPerTaskExecutor))
 (set-agent-send-off-executor!
@@ -22,9 +23,7 @@
   (alter-var-root #'nrepl-server
     (fn [x]
       (when (some? x) (nrepl.server/stop-server x))
-      (let [server (nrepl.server/start-server
-                     ;:port 7888
-                     {})]  
+      (let [server (nrepl.server/start-server {})]
         (try
           (alter-var-root #'nrepl-transport
             (constantly (nrepl/connect :port (:port server))))
@@ -43,15 +42,20 @@
   ((requiring-resolve 'idp.hub/open-hub-window!)))
 
 (defn -main [& args]
+  ;; Setup an nREPL server to allow connecting to the program
+  ;; with an editor for dynamic evaluation of code
   (start-nrepl-server!)
   (.addShutdownHook (Runtime/getRuntime)
     (Thread. #'on-shutdown))
+  
   (when (some #{"reflection"} args)
     (println "Enabled *warn-on-reflection*")
     (set! *warn-on-reflection* true))
+  
   (println "Starting application")
   (start-app!)
   (println "Initialised")
+  
   ;; Block the main thread so that program remains alive
   ;; Note that nREPL runs in a virtual (hence daemon) thread
   (let [o (Object.)]

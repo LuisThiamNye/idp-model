@@ -3,8 +3,9 @@
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0-alpha1"}
         
-        chic/chic {;; 04a0ed1993c59eee91bb129750d9073630824f97
-                   :local/root "../chic"}
+        chic/chic {;:local/root "../chic"
+                   :git/url "https://github.com/LuisThiamNye/chic"
+                   :git/sha "04a0ed1993c59eee91bb129750d9073630824f97"}
         
         io.github.humbleui/humbleui {:git/url "https://github.com/HumbleUI/HumbleUI"
                                      :git/sha "ed76cccaec34c6127c45d43a7655a80aba666114"}
@@ -18,11 +19,9 @@
         proteus/proteus {:mvn/version "0.1.6"}
         cnuernber/dtype-next {:mvn/version "9.033"}
         babashka/fs {:mvn/version "0.1.11"}
-        org.suskalo/farolero {:mvn/version "1.4.4"}
         org.clj-commons/primitive-math {:mvn/version "1.0.0"}
         lambdaisland/regal {:mvn/version "0.0.143"}
         potemkin/potemkin {:mvn/version "0.4.6"}
-        metosin/malli {:mvn/version "0.8.4"}
         riddley/riddley {:mvn/version "0.2.0"}
         net.cgrand/xforms {:git/url "https://github.com/cgrand/xforms"
                            :git/tag "v0.19.4"

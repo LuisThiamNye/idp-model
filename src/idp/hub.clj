@@ -4,9 +4,7 @@
   Used to access other windows (monitor, simulation)"
   (:require
     [io.github.humbleui.app :as app]
-    [io.github.humbleui.core :as hui]
     [io.github.humbleui.ui :as ui]
-    [io.github.humbleui.window :as window]
     [idp.robot.sim.ui :as sim.ui]
     [idp.robot.monitor.panel :as monitor.panel]
     [idp.robot.brain.phase :as phase]
@@ -35,47 +33,33 @@
             (ui/label "Monitor"))
           (ui/gap 0 5)
           (ui/button
-            (fn []
-              (sim.ui/open-sim-window!))
+            (fn [] (sim.ui/open-sim-window!))
            (ui/label "Simulation"))
           (ui/gap 0 10)
           (ui/column
             (ui/checkbox *sim?
               (ui/label "Sim?"))
             (ui/button
+              ;; This button begins the full competition attempt
               (fn []
                 (loopth/start-loop! client-loop)
-                (swap! (:*state robot)
-                  (fn [state]
-                    (-> state
-                      (assoc :auto? true)
-                      (assoc :phase (phase/get-initial-state
-                                      (phase/lookup-phase :full-run)))
-                      (phase/initialise-phase-on-state
-                        (phase/lookup-phase :exit-start))))))
+                (swap! (:*state robot) assoc
+                  :auto? true
+                  :phase (phase/get-initial-state
+                           (phase/lookup-phase :full-run))))
               (ui/label "Start"))
             (ui/gap 0 3)
             (ui/button
+              ;; Stops the robot's motion and disables autopilot
+              ;; but remains connected
               (fn []
                 (swap! (:*state robot) assoc :auto? false)
                 (swap! (:*input robot) assoc
                   :motor-1 0 :motor-2 0))
               (ui/label "Stop"))
-            #_#_(ui/gap 0 5)
-            (ui/button
-              (fn []
-                (swap! (:*state robot)
-                  (fn [state]
-                    (-> state
-                      (assoc
-                        :auto? true
-                        :next-phase-map
-                        {:detect-block :stationary-open-grabber
-                         :stationary-open-grabber :stop})
-                      (phase/init-phase-id-on-state :detect-block)))))
-              (ui/label "Detect"))
             (ui/gap 0 5)
             (ui/button
+              ;; Cuts off the connection with the Arduino
               (fn []
                 (loopth/stop-loop! client-loop)
                 (swap! (:*state robot) assoc :auto? false)
@@ -89,7 +73,10 @@
 
 (def *window (promise))
 
-(defn open-hub-window! []
+(defn open-hub-window!
+  "Opens the main window with a simple list of buttons.
+  Closing this window exits the program."
+  []
   (app/doui-async
     (deliver *window
       (doto ^Window

@@ -4,10 +4,12 @@
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.canvas :as canvas])
   (:import
-    [io.github.humbleui.types IRect IPoint Rect]
-    [io.github.humbleui.skija Canvas Path]))
+    (io.github.humbleui.types Rect)
+    (io.github.humbleui.skija Canvas Path)))
 
 (def ui-robot
+  "Draws the graphical representation of the robot on the table,
+  including translation and rotation."
   (ui/dynamic _
     [dims params/dims
      theme params/theme]
@@ -16,7 +18,7 @@
       :theme theme}
      (ui/canvas
        {:on-paint
-        (fn [ctx ^Canvas cnv size]
+        (fn [ctx ^Canvas cnv _size]
           (let [scale (* (:scale ctx) (:board-scale ctx))
                 {:keys [width length centre-y
                         ultrasonic-1 ultrasonic-2]} (:dims ctx)
@@ -35,6 +37,8 @@
                   (let [{:keys [x y]} (params/get-line-sensor-pos n)]
                     (.drawCircle cnv (+ x xmid) (+ y ymid)
                       line-sensor-radius line-sensor-fill)))
+                ;; Draws triangles to represent the ultrasonic sensor positions
+                ;; and orientations
                 draw-ultrasonic
                 (fn [{:keys [pos angle]}]
                   (let [x 0 y 0 l 7]
@@ -50,6 +54,8 @@
                                (- x l) (- y l)])
                             true))
                         ultrasonic-fill))))
+                ;; Draws a straight line from the ultrasonic to the point on the
+                ;; obstacle it is looking at
                 draw-us-line
                 (fn [us-key]
                   (let [{:keys [pos collision-pos]}
@@ -71,16 +77,14 @@
               (canvas/translate cnv (- xmid) (- ymid))
               (.drawRect cnv (Rect/makeWH width length) border-stroke)
 
-              ;; line sensors
               (draw-line-sensor 1)
               (draw-line-sensor 2)
               (draw-line-sensor 3)
               (draw-line-sensor 4)
               
-              ;; ultrasonic
               (draw-ultrasonic ultrasonic-1)
               (draw-ultrasonic ultrasonic-2)
               
-              ;; centre
+              ;; indicate the centre of rotation
               (.drawCircle cnv xmid ymid line-sensor-radius border-stroke)
               )))}))))

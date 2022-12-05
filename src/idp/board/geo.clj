@@ -44,10 +44,7 @@
              tunnel-y
              tunnel-width
              tunnel-wall-thickness
-             tunnel-length
-             ramp-width
-             ramp-margin-top
-             ramp-margin-bottom]} params/dims
+             tunnel-length]} params/dims
      line-turn-outer-radius (+ line-turn-radius line-width)
      line-horiz-xr (- board-width (+ line-turn-outer-radius line-right-margin))
      line-bottom-yb (- board-height line-bottom-margin)

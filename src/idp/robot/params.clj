@@ -1,4 +1,5 @@
 (ns idp.robot.params
+  "Parameters relating to the robot"
   (:require
     [io.github.humbleui.paint :as paint]))
 
@@ -8,13 +9,14 @@
   100)
 
 (def dims
-  "Important dimensions of the robot"
+  "Important dimensions of the robot.
+  Lengths in millimetres and angles in degrees."
   (let [axle-y 230
-        axle-to-ls 170]
+        axle-to-line-sensors 170]
     {:width 210
      :length 280
      :centre-y axle-y
-     :line-sensors-y (- axle-y axle-to-ls)
+     :line-sensors-y (- axle-y axle-to-line-sensors)
      :line-sensors-spacing 20
      :line-sensors-centre-spacing 19
      

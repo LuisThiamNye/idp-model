@@ -2,9 +2,7 @@
   "Implementation of protocol for communicating with the
   robot over the network."
   (:require
-    [clojure.data :as data]
     [idp.net :as net]
-    [idp.util.throttle :as throttle]
     [idp.common :as common]
     [idp.robot.client :as client])
   (:import
@@ -103,7 +101,6 @@
 
 (defn send-input! [conn input]
   (let [req-bytes (make-request-bytes input)]
-    ; (prn req-bytes)
     (common/on-agent (:*socket conn)
       net/send-bytes! req-bytes)))
 

@@ -1,12 +1,12 @@
 (ns idp.robot.brain.junction
+  "Some common phases for tackling junctions"
   (:require
     [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [idp.robot.brain.util :as bu]
     [chic.util.ns :refer [inherit-vars]]
     [clojure.core.match :refer [match]]
-    [idp.robot.brain.follow :as follow]
-    [idp.robot.state :as rs]))
+    [idp.robot.brain.follow :as follow]))
 
 (inherit-vars
   bu/get-line-triggers
@@ -61,6 +61,10 @@
                 {:input (motor-input 0 (cond-> 200 (= :right turn-direction) -))}))))))))
 
 (defphase junction-approach-turn
+  "After line sensors have detected a junction, this phase is
+  useful for performing the 90° turn onto the perpendicular line.
+  To improve the final angle, the robot will initially move forwards
+  by an 'excess' amount."
   :chain
   (fn [{:keys [turn-direction] :as params}]
     (enc/have? #{:left :right} turn-direction)

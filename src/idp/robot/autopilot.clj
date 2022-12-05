@@ -1,10 +1,10 @@
 (ns idp.robot.autopilot
+  "Stores the autopilot loops for both the simulated and real robots"
   (:require
     [idp.loopthread :as loopth]
     [idp.robot.brain.core :as brain]
     [idp.net.api :as net.api]
     [idp.robot.client :as client]
-    [idp.robot.brain.phase :as phase]
     [idp.robot.sim.client :as sim.client]
     [idp.robot.state :as robot.state]))
 
@@ -22,6 +22,7 @@
           {:keys [*state *readings]} robot
           prev-readings @*readings
           t-presync (System/currentTimeMillis)
+          ;; Send request based on *input state and receive response
           _ (client/sync! @(:*client loop-state) robot)
           t-postsync (System/currentTimeMillis)]
       (when-not (identical? prev-readings @*readings)
@@ -65,24 +66,3 @@
 (def *net-loop
   (loopth/make-loop
     (tick-fn *net-loop-state)))
-
-(comment
-  (def active-robot robot.state/net-robot)
-  (def active-robot robot.state/sim-robot)
-
-  (swap! (:*input active-robot) assoc
-    :ultrasonic-active? true)
-  
-  (swap! (:*input active-robot) assoc
-    :motor-1 -255
-    :motor-2 255)
-  (swap! (:*input active-robot) assoc
-    :motor-1 0
-    :motor-2 0)
-  
-  (swap! (:*input active-robot) assoc
-    :motor-1 155
-    :motor-2 155)
-  (:*input active-robot)
-  
-  )

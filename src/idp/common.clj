@@ -55,7 +55,7 @@
       (str/split-lines string))))
 
 (defn with-context
-  "Injects common context that may be useful"
+  "Injects common context that may be useful into the UI tree"
   ([child]
    (with-context {} child))
   ([opts child]

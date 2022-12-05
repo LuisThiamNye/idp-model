@@ -6,9 +6,7 @@
   (:import
     (java.net Socket InetSocketAddress SocketException
       SocketTimeoutException)
-    (java.io
-      PrintWriter BufferedReader InputStreamReader
-      Reader IOException InputStream OutputStream)))
+    (java.io IOException)))
 
 (def server-mac-address
   "MAC address of the Arduino"
@@ -67,11 +65,9 @@
   "Attempts to connect the socket, returning true if successful"
   [^String hostname ^Long port ^Socket socket]
   (try
-    ; (println "Net: Connecting to " hostname ":" port)
     (.connect socket
       (InetSocketAddress. hostname port)
       socket-connect-timeout)
-    ; (println "Net:    successful connection")
     true
     (catch SocketException e
       (if (Thread/interrupted)
@@ -99,7 +95,6 @@
       (let [*prev-socket (:*socket prev-state)
             _ (when *prev-socket
                 (send *prev-socket close-socket-safely))
-            ; hostname (:hostname state)
             hostname (get-server-ip)
             return-new-state
             (fn [state2]
@@ -108,20 +103,20 @@
         (if (nil? hostname)
           (return-new-state
             (assoc state :status :failed))
-         (let [connect!
-               (fn []
-                 (send-off *socket
-                   (fn [socket]
-                     (return-new-state
-                       (if (connect-socket
-                             hostname (:port state) socket)
-                         (assoc state :status :connected)
-                         (assoc state :status :failed)))
-                     socket)))]
-           ;; Only begin new connection after previous socket has been closed
-           (if *prev-socket
-             (send *prev-socket (fn [_] (connect!)))
-             (connect!)))))
+          (let [connect!
+                (fn []
+                  (send-off *socket
+                    (fn [socket]
+                      (return-new-state
+                        (if (connect-socket
+                              hostname (:port state) socket)
+                          (assoc state :status :connected)
+                          (assoc state :status :failed)))
+                      socket)))]
+            ;; Only begin new connection after previous socket has been closed
+            (if *prev-socket
+              (send *prev-socket (fn [_] (connect!)))
+              (connect!)))))
       ;; prev-state is stale; return nil
       (deliver *ret nil))
     *ret))
@@ -131,7 +126,6 @@
   May throw IOException"
   [^Socket socket data]
   (let [out (.getOutputStream socket)]
-    ; (println "send" data)
     (.write out (byte-array data))
     (.flush out)))
 
@@ -140,9 +134,7 @@
   Returns byte array of input.
   May throw IOException."
   [^Socket socket]
-  (let [in (.getInputStream socket)]
-    (let [nbytes (.available in)]
-      (when (< 0 nbytes)
-        (let [ba (.readNBytes in nbytes)]
-          ; (println (vec ba))
-          ba)))))
+  (let [in (.getInputStream socket)
+        nbytes (.available in)]
+    (when (< 0 nbytes)
+      (.readNBytes in nbytes))))

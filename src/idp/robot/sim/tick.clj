@@ -10,10 +10,6 @@
   "Conforms angle to range [0, 360)"
   [angle]
   (let [angle (rem angle 360)]
-    #_(cond
-      (< angle -180) (+ 360 angle)
-      (< 180 angle) (- angle 360)
-      :else angle)
     (double (if (< angle 0) (+ 360 angle) angle))))
 
 (defn ray-rect-collision-point
@@ -66,20 +62,22 @@
                          (and (<= 0 angle) (< angle 180))
                          bottom
                          (and (<= 180 angle) (< angle 360))
-                         top)]
-    (let [rads (* Math/PI (/ angle 180))
-          dydx (Math/tan rads)
-          vpoint (let [dx (- closest-rect-x x)
-                       y2 (+ y (* dx dydx))]
-                   (when (<= top y2 bottom)
-                     {:x  closest-rect-x :y y2}))
-          hpoint (let [dy (- closest-rect-y y)
-                       x2 (+ x (/ dy dydx))]
-                   (when (<= left x2 right)
-                     {:x x2 :y  closest-rect-y}))]
-      (or vpoint hpoint))))
+                         top)
+        rads (* Math/PI (/ angle 180))
+        dydx (Math/tan rads)
+        vpoint (let [dx (- closest-rect-x x)
+                     y2 (+ y (* dx dydx))]
+                 (when (<= top y2 bottom)
+                   {:x  closest-rect-x :y y2}))
+        hpoint (let [dy (- closest-rect-y y)
+                     x2 (+ x (/ dy dydx))]
+                 (when (<= left x2 right)
+                   {:x x2 :y  closest-rect-y}))]
+    (or vpoint hpoint)))
 
-(defn tick-physics! [dt-micros]
+(defn tick-physics!
+  "Update the simulated state of the world"
+  [dt-micros]
   (swap! *real
     (fn [{:keys [position angle velocity angular-velocity] :as state}]
       (let

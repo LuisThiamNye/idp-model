@@ -1,25 +1,18 @@
 (ns idp.robot.sim.ui
   "Robot simulation window UI"
   (:require
-    [clojure.string :as str]
     [zprint.core :as zprint]
-    [idp.robot.params :as params]
     [idp.robot.state :as robot.state]
     [idp.robot.sim.client :as sim.client]
     [idp.board.geo :as board.geo]
     [idp.state :as state]
     [io.github.humbleui.app :as app]
-    [io.github.humbleui.paint :as paint]
     [idp.common :as common]
     [idp.sim :as sim]
-    [idp.loopthread :as loopth]
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.core :as hui]
-    [io.github.humbleui.protocols :as protocols]
-    [io.github.humbleui.canvas :as canvas]
     [io.github.humbleui.window :as window]
     [io.github.humbleui.font :as font]
-    [io.github.humbleui.font :as typeface]
     [idp.board.background :as board.bg]
     [idp.robot.graphic :as robot.g]
     [idp.board.params :as board.params]
@@ -58,9 +51,13 @@
             (ui/dynamic _ [angle (:angle @robot.state/*real)]
               (ui/label (format "%#5.1f°" (unchecked-double angle))))))))))
 
-(def *savestate (atom {}))
+(def *savestate
+  "Stores the saved position and angle of the robot"
+  (atom {}))
 
 (def ui-savestate-controls
+  "Allows you to save the position and angle of the robot so that
+  they can be exactly restored with ease"
   (ui/dynamic _ []
     (ui/row
       (ui/button
@@ -85,10 +82,13 @@
         (ui/center
           (ui/row
             (ui/gap 5 0)
+            ;; Quickly restore the robot to the starting position
             (ui/button
               (fn [] (robot.state/reset-real!))
               (ui/label "Move to start"))
             (ui/gap 5 0)
+            ;; Manually control what simulated robot reports about
+            ;; the block presence and density, since it is not simulated
             (ui/checkbox robot.state/*sim-block-present?
               (ui/label "Block present?"))
             (ui/gap 5 0)
@@ -103,6 +103,7 @@
             ui-savestate-controls
             (ui/gap 5 0)
             (ui/dynamic _ [looping? (sim/sim-running?)]
+              ;; Controls whether the simulation is running
               (common/action-checkbox
                 {:state looping?
                  :on-toggle (fn [_ checked?]
@@ -169,19 +170,19 @@
            :*robot-real-state robot.state/*real}
           (ui/dynamic ctx [{:keys [board-scale scale]} ctx]
             (ui/mouse-listener
-              {:on-button (fn [evt]
+              {:on-button (fn [evt] ;; Allow clicking to position the robot
                             (when (and (= :primary (:button evt))
                                     (:pressed? evt))
                               (let [scale (* board-scale scale)
                                     pos {:x (/ (:x evt) scale) :y (/ (:y evt) scale)}]
                                 (swap! robot.state/*real assoc :position pos))))
                :on-move (fn [evt]
+                          ;; Determine whether mouse is on the line
+                          ;; as if the cursor were a line sensor
                           (swap! state/*misc assoc :mouse-on-line?
                             (board.geo/point-on-line?
-                              (let [scale (* board-scale scale)
-                                    pos {:x (/ (:x evt) scale) :y (/ (:y evt) scale)}]
-                                ; (prn pos)
-                                pos))))}
+                              (let [scale (* board-scale scale)]
+                                {:x (/ (:x evt) scale) :y (/ (:y evt) scale)}))))}
               (ui/stack
                 ui-background
                 ui-robot
@@ -192,7 +193,7 @@
                      (= :frame (:event e)))})))))))))
 
 (def ui-root
-  (ui/dynamic ctx
+  (ui/dynamic _
     [ui-arena ui-arena
      sim-controls robot.sim.ui/ui-controls
      with-context common/with-context]

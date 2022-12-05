@@ -1,20 +1,14 @@
 (ns idp.robot.monitor.panel
-  "Visualisations of the robot sensor data and connection status."
+  "Live visualisations of the robot sensor data and connection status."
   (:require
-    [clojure.string :as str]
     [puget.printer :as puget]
-    [zprint.core :as zprint]
-    [idp.robot.params :as params]
     [idp.robot.state :as robot.state]
-    [idp.board.geo :as board.geo]
-    [idp.state :as state]
     [idp.robot.brain.phase :as phase]
     [io.github.humbleui.app :as app]
     [io.github.humbleui.paint :as paint]
     [idp.common :as common :refer [multiline-label
                                    action-checkbox]]
     [io.github.humbleui.ui :as ui]
-    [io.github.humbleui.canvas :as canvas]
     [io.github.humbleui.window :as window]
     [io.github.humbleui.font :as font]
     [idp.robot.autopilot :as autopilot]
@@ -24,11 +18,13 @@
     [idp.loopthread :as loopth])
   (:import
     (io.github.humbleui.jwm Window)
-    [io.github.humbleui.types IRect IPoint Rect Point]
-    [io.github.humbleui.skija Canvas Paint
-     FontStyle Font Typeface FontWidth FontWeight FontSlant]))
+    (io.github.humbleui.types IPoint Rect)
+    (io.github.humbleui.skija Canvas)))
 
 (def ui-line-sensor-dot
+  "Coloured circle indicating a line sensor readings.
+  Line present → green
+  No line → grey"
   (let [inactive-fill (paint/fill 0x4F000000)
         active-fill (paint/fill 0xFF40F040)]
     (ui/width 15
@@ -45,11 +41,11 @@
                    inactive-fill))))})))))
 
 (def ui-line-sensors
+  "A row of circles indicating the latest line sensor readings"
   (ui/dynamic ctx
     [ui-line-sensor-dot ui-line-sensor-dot
      line-sensors (:line-sensors
                     (:robot-readings ctx))
-     ; {:keys [mouse-on-line?]} @state/*misc
      ui-ls (fn [ls]
              (ui/with-context
                {:line-sensor-reading ls}
@@ -59,13 +55,11 @@
         (eduction
           (map ui-ls)
           (interpose (ui/gap gap 0))
-          line-sensors)
-       #_#_(ui/gap (* 2.5 gap) 0)
-       (ui/with-context
-         {:line-sensor-triggered? mouse-on-line?}
-         ui-line-sensor-dot)))))
+          line-sensors)))))
 
 (def ui-rect-meter
+  "A rectangular bar displaying a fractional quantity (:meter-value)
+  which may have the range [0,1] or [-1,1]."
   (let [border-stroke (paint/stroke 0xFF505050 3)
         fallback-fill (paint/fill 0xFFb3efef)
         fallback-nodata-fill (paint/fill 0xFFc7dbdb)]
@@ -94,6 +88,8 @@
                    (.drawRect cnv (Rect/makeWH (.toPoint size)) no-data-fill))))}))))))
 
 (def ui-motor
+  "Displays a horizontal bar showing a motor speed
+  obtained from :motor-speed in the UI context"
   (let [forward-fill (paint/fill 0xFFc3ddf7)
         backward-fill (paint/fill 0xFFf7e7c0)]
     (ui/stack
@@ -114,6 +110,7 @@
               "%")))))))
 
 (def ui-motors
+  "Displays the requested motor speeds"
   (ui/height 40
     (ui/dynamic ctx [ui-motor ui-motor
                      motor-1 (:motor-1 (:robot-input ctx))
@@ -122,7 +119,10 @@
         [:stretch 1 (ui/with-context {:motor-speed motor-1} ui-motor)]
         [:stretch 1 (ui/with-context {:motor-speed motor-2} ui-motor)]))))
 
-(defn ui-ultrasonic [us-key]
+(defn ui-ultrasonic
+  "Makes a component that displays an ultrasonic reading
+  as a horizontal bar."
+  [us-key]
   (let [max-dist 800]
     (ui/dynamic _ [ui-rect-meter ui-rect-meter]
       (ui/stack
@@ -143,10 +143,14 @@
     (ui/height 40
       (ui/column
         [:stretch 1 (ui-ultrasonic :ultrasonic-1)]
-        ; (ui/gap 10 0)
         [:stretch 1 (ui-ultrasonic :ultrasonic-2)]))))
 
 (def ui-ultrasonics-graph
+  "Displays a graph of ultrasonic readings over time.
+  There are two columns, one for each sensor (left, rear).
+  Readings are displayed as if zero were at the centre.
+  A solid grey colour is shown when there are no readings available.
+  The most recent readings are at the top."
   (let [bg-fill (paint/fill 0xFFe0e0e0)
         active-fill (paint/fill 0xFF89dddd)
         nodata-fill (paint/fill 0xFFa5c6c6)
@@ -194,6 +198,10 @@
                (rseq history))))}))))
 
 (def ui-line-sensors-graph
+  "Displays the line sensor readings over time.
+  Consists of four columns, one for each line sensor.
+  If a line is detected, green is displayed.
+  The most recent readings are at the top."
   (let [bg-fill (paint/fill 0xFFe0e0e0)
         active-fill (paint/fill 0xFF78bc78)
         missed-active-fill (paint/fill 0xFFb1bc78)
@@ -245,6 +253,9 @@
                  (recur (unchecked-dec i) y2))))))}))))
 
 (def ui-latency-graph-overlay
+  "Shows additional information regarding the Wi-Fi connection
+  such as the amount of responses that failed to come through in time
+  and the time since the previous response."
   (ui/halign 0
     (ui/valign 1
       (ui/padding 10 10
@@ -254,7 +265,7 @@
             [ui-dropped
              (ui/clickable
                {:on-click
-                (fn [_]
+                (fn [_] ;; Click to clear the history of responses
                   (swap! (client/get-req-status-atom client)
                     assoc
                     :requests-dropped 0
@@ -285,8 +296,9 @@
               ui-dropped)))))))
 
 (def ui-latency-graph
-  (let [;bg-fill (paint/fill 0xFFf7f7f7)
-        fill (paint/fill 0xFFced9dd)
+  "A graph that plots the time between each response (Δt).
+  The most recent response is shown on the right."
+  (let [fill (paint/fill 0xFFced9dd)
         px-per-t 0.2
         seg-width 2]
     (ui/width 100
@@ -301,7 +313,6 @@
            (ui/canvas
              {:on-paint
               (fn [ctx ^Canvas cnv ^IPoint size]
-                ;(.drawRect cnv (Rect/makeWH (.toPoint size)) bg-fill)
                 (let
                   [scale (:scale ctx)
                    px-per-t (* scale px-per-t)
@@ -334,16 +345,18 @@
              [ui-latency-graph-overlay ui-latency-graph-overlay]
              ui-latency-graph-overlay)))))))
 
-(def *select-sim? (atom false))
+(def *select-sim?
+  "Whether to view data from the simulation or the real robot"
+  (atom false))
 
 (def ui-client-controls
   (ui/dynamic ctx
-    [{:keys [client]} ctx
-     {:keys [robot]} ctx]
+    [{:keys [client]} ctx]
     (ui/row
       (ui/dynamic ctx
         [{:keys [client-loop]
           looping? :client-looping?} ctx]
+        ;; Determines whether the autopilot loop is running
         (action-checkbox
           {:state looping?
            :on-toggle (fn [_ checked?]
@@ -355,6 +368,8 @@
       (ui/dynamic ctx
         [{:keys [robot]} ctx
          robot-auto? (:auto? @(:*state robot) false)]
+        ;; Determines whether the autopilot will be updated with
+        ;; each loop cycle
         (action-checkbox
           {:state robot-auto?
            :on-toggle
@@ -366,6 +381,8 @@
           (ui/label "Auto")))
       (ui/gap 3 0)
       (ui/dynamic ctx [{:keys [robot]} ctx]
+        ;; Emergency button that stops the robot's motion and
+        ;; disables the autopilot
         (ui/button
           (fn []
             (swap! (:*state robot) assoc :auto? false)
@@ -374,6 +391,7 @@
           (ui/label "Stop")))
       (ui/gap 3 0)
       (ui/button
+        ;; Forces a reconnection
         (fn []
           (future
             (client/reset-connection! client
@@ -387,8 +405,6 @@
       (ui/checkbox *select-sim? (ui/label "Sim")))))
 
 (def *phase-select-history (atom {:entries [] :idx 0}))
-(count (:entries @*phase-select-history))
-(do (:idx @*phase-select-history))
 
 (defn phase-select-add-history! [text]
   (swap! *phase-select-history
@@ -414,7 +430,10 @@
       (catch Exception e
         (println "Failed to set phase-id" e)))))
 
-(defn phase-select-nav-history! [n]
+(defn phase-select-nav-history!
+  "Traverses the history of phase commands by a delta of n.
+  If n is negative, a previous command is selected."
+  [n]
   (let [{:keys [entries idx]}
         (swap! *phase-select-history
           (fn [{:keys [idx entries] :as h}]
@@ -425,9 +444,15 @@
     (nth entries idx nil)))
 
 (def ui-phase-select
+  "A textbox that allows initialising a root autopilot phase.
+  The content is interpreted as though it were within a vector.
+  The first item is a symbol representing the phase-id (non-optional).
+  The second item is the 'params' map used to initialise the phase state.
+  The third item is a map that gats merged into the phase state.
+  Using the arrow keys, you can navigate between previously submitted commands."
   (let [*state (atom {:placeholder "phase-id"
                       :text (peek (:entries @*phase-select-history))})]
-    (ui/dynamic ctx [{{*robot-state :*state :as robot} :robot} ctx]
+    (ui/dynamic ctx [{:keys [robot]} ctx]
       (ui/row
         (ui/dynamic _ []
           (let [reset-text! (fn [text]
@@ -460,6 +485,8 @@
           (ui/label "Go"))))))
 
 (def ui-raw-state-display
+  "Displays the time elapsed and a textual representation of
+  the root phase state"
   (let [fmt-data #(puget/pprint-str %
                     {:width 60
                      :coll-limit 7
@@ -475,36 +502,14 @@
               (min 9999 (long (/ (- t start-time) 1000)))
               "/300")
             "-")))
-      #_(ui/dynamic ctx
-        [readings (:robot-readings ctx)]
-        (multiline-label
-          (fmt-data (dissoc readings
-                      :line-sensors
-                      :ultrasonic-1
-                      :ultrasonic-2
-                      :block-density
-                      :block-present?
-                      :dt
-                      :time-received))))
-      #_(ui/gap 0 8)
-      #_(ui/dynamic ctx
-        [state (:robot-state ctx)]
-        (multiline-label
-          (fmt-data (dissoc state :readings-history
-                      :next-phase-map :phase))))
-      #_(ui/gap 0 8)
       (ui/dynamic ctx
         [state (:robot-state ctx)]
         (multiline-label
-          (fmt-data (:phase state))))
-      #_(ui/gap 0 8)
-      #_(ui/dynamic ctx
-        [input (:robot-input ctx)]
-        (multiline-label
-          (fmt-data (dissoc input :motor-1 :motor-2
-                      :signal-block-density :grabber-position)))))))
+          (fmt-data (:phase state)))))))
 
 (def ui-block-status
+  "Shows block presence and density readings,
+  and the desired block density LED state."
   (let [inactive-fill (paint/fill 0x4F000000)
         active-fill (paint/fill 0xFF40F040)
         green-fill (paint/fill 0xFFa6f7a0)
@@ -513,6 +518,7 @@
       (ui/dynamic ctx
         [{:keys [block-density
                  block-present?]} (:robot-readings ctx)]
+        ;; Green background if block present
         (ui/rect (case block-present?
                    true active-fill
                    false inactive-fill
@@ -529,7 +535,7 @@
         [{:keys [signal-block-density]} (:robot-input ctx)
          {:keys [robot]} ctx]
         (ui/clickable
-          {:on-click
+          {:on-click ;; Click to manually set the block density LED
            (fn [_] (swap! (:*input robot) update :signal-block-density
                      {:high :low
                       :low nil
@@ -547,6 +553,9 @@
                             "  "))))))))))
 
 (def ui-top-indicators
+  "Shows the desired grabber position and
+  whether ultrasonic sensors are enabled.
+  Buttons allow setting these."
   (ui/dynamic _ [ui-block-status ui-block-status
                  ui-line-sensors ui-line-sensors]
     (ui/row
@@ -672,7 +681,9 @@
 
 (def *window (agent nil))
 
-(defn open-window! []
+(defn open-window!
+  "Opens and focuses the monitor window"
+  []
   (send *window
     (fn [^Window prev-window]
       (app/doui

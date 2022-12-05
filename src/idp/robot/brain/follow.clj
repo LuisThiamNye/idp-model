@@ -1,4 +1,5 @@
 (ns idp.robot.brain.follow
+  "Phases for line following"
   (:require
     [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
@@ -13,7 +14,9 @@
   bu/motor-input
   bu/get-combined-line-readings)
 
-(defn tick-common-follow [{:keys [state readings] :as robot} follow-strategy]
+(defn tick-common-follow
+  "A generic tick-fn for line following algorithms"
+  [{:keys [state readings] :as robot} follow-strategy]
   (let
     [intent ((:intent-fn follow-strategy) state readings)
      intent
@@ -46,6 +49,8 @@
          :input (motor-input forward-speed turn-speed)}))))
 
 (def basic-follow-strategy
+  "Line following strategy aiming to keep the line aligned
+  with the middle of the robot"
   {:intent-fn
    (fn [state readings]
      (let [combined-readings (get-combined-line-readings readings)
@@ -62,17 +67,17 @@
          (match prev-intent
            ;; go straight if line lost when between sensors
            ;; - important for ramp
-           [:left 1]  [:straight]; [:left 2]
+           [:left 1]  [:straight]
            [:left 2]  [:left 4]
            [:left 3]  [:left 4]
-           [:right 1] [:straight];[:right 2]
+           [:right 1] [:straight]
            [:right 2]  [:right 4]
            [:right 3] [:right 4]
            :else prev-intent)
          :else prev-intent)))})
 
 (defphase basic-follow
-  "Follow the line, centred on the robot"
+  "Centre-aligned line following"
   :init (fn [params]
           {:follow-intent [:continue]
            :high-power? (:high-power? params false)
@@ -89,6 +94,11 @@
           :else [[255 0] [230 30] [80 150] [20 200] [0 200]])))))
 
 (defphase follow-correcting
+  "A wrapper around a line following phase that will perform
+  a correction procedure should the robot lose the line for
+  a certain minimum duration.
+  The robot will swing from side to side at an increasing amplitude
+  until the line is found again."
   :init (fn [params]
           {:blackout-duration 0
            :min-blackout-duration 500 ;; time before reversing spin
@@ -135,6 +145,8 @@
         :else cmd))))
 
 (def biased-follow-strategy
+  "Line following strategy that aims to keep the line between
+  either the two left or the two right line sensors."
   {:intent-fn
    (fn [state readings]
      (let [combined-readings (get-combined-line-readings readings)
@@ -150,20 +162,6 @@
            {:keys [bias-level]} state
            intent
            (case (int bias-level)
-             ; 1 ;; align line with 3rd sensor
-             ; (match (cond-> combined-readings
-             ;          swap? (-> rseq vec))
-             ;   [ _ :w :w :w] [:straight]
-             ;   [:b :b :w  _] [:straight]
-             ;   [ _ :w :w :b] [:left 1]
-             ;   [ _ :w :b :b] [:left 2]
-             ;   [:w :b :b :b] [:left 3]
-             ;   [ _  _ :b :w] [:right 1]
-             ;   [:b :b :b :b]
-             ;   (match prev-intent
-             ;     [:right 1] [:right 4]
-             ;     :else prev-intent)
-             ;   :else prev-intent)
              2 ;; keep line between sensor 3 and 4
              (match (cond-> combined-readings
                       swap? (-> rseq vec))
@@ -187,8 +185,8 @@
        (cond-> intent swap? mirror-intent)))})
 
 (defphase biased-follow
-  "Follow the line, keeping the line aligned with either the
-  middle- left or right sensor"
+  "Follow the line, keeping the line offset from the middle,
+  on either the left or right"
   :init (fn [{:keys [bias] :as params}]
           {:bias (enc/have #{:left :right} bias)
            :bias-level (enc/have #{2} (:bias-level params 2))

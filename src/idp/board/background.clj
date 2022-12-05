@@ -6,8 +6,8 @@
     [io.github.humbleui.ui :as ui]
     [io.github.humbleui.canvas :as canvas])
   (:import
-    [io.github.humbleui.types IRect IPoint Rect]
-    [io.github.humbleui.skija Canvas Paint]))
+    (io.github.humbleui.types IPoint Rect)
+    (io.github.humbleui.skija Canvas Paint)))
 
 (def ui-bg-canvas
   (ui/canvas

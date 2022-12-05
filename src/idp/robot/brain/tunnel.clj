@@ -1,6 +1,5 @@
 (ns idp.robot.brain.tunnel
   (:require
-    [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [clojure.core.match :refer [match]]
     [idp.robot.params :as robot.params]
@@ -27,7 +26,7 @@
 
 (defphase through-tunnel
   "Waits until refinding the line.
-  Drives robot in straight line at constant speed.
+  Drives robot in a straight line at constant speed.
   Uses side-mounted ultrasonic sensors to adjust direction."
   :init {:nfinds 0
          :min-duration 1000

@@ -1,12 +1,9 @@
 (ns idp.robot.brain.detect
+  "Phases involved in block detection"
   (:require
     [taoensso.encore :as enc]
-    [idp.board.params :as board.params]
-    [idp.robot.params :as robot.params]
     [idp.robot.brain.phase :as phase :refer [defphase]]
-    [clojure.core.match :refer [match]]
     [chic.util.ns :refer [inherit-vars]]
-    [idp.robot.state :as rs]
     [idp.robot.brain.util :as bu]
     [idp.robot.brain.follow :as follow]))
 
@@ -28,6 +25,8 @@
   follow/follow-up-to-blackout)
 
 (defphase signal-block-density
+  "Lights up the appropriate LED for 5 seconds to
+  indicate block density."
   :init (fn [params]
           {:density (enc/have #{:high :low} (:density params))
            :time-elapsed 0})
@@ -42,6 +41,7 @@
          :input {:signal-block-density (:density state)}}))))
 
 (defphase measure-density
+  "Outputs the current block density reading and completes immediately"
   :tick
   (fn [{:keys [readings]}]
     (let [density (:block-density readings)]
@@ -68,6 +68,8 @@
                  cmd))})))
 
 (defphase show-density-live
+  "A phase used for debugging: the block density LED will be
+  responsive to the current block density reading."
   :tick
   (fn [{:keys [readings]}]
     {:input {:signal-block-density (:block-density readings)}}))

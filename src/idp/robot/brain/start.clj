@@ -1,10 +1,9 @@
 (ns idp.robot.brain.start
+  "The initial phases responsible for taking the robot out of the start box"
   (:require
-    [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
     [idp.robot.brain.util :as bu]
     [chic.util.ns :refer [inherit-vars]]
-    [clojure.core.match :refer [match]]
     [idp.robot.state :as rs]))
 
 (inherit-vars

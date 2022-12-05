@@ -2,7 +2,6 @@
   "Simulation loop"
   (:require
     [idp.robot.state :as state]
-    [idp.loopthread :as loopth]
     [idp.robot.sim.tick :as robot.sim.tick])
   (:import
     (java.util Timer TimerTask)))

@@ -1,12 +1,12 @@
 (ns idp.board.params
+  "Parameters relating to the table"
   (:require
-    [io.github.humbleui.paint :as paint])
-  (:import
-    (io.github.humbleui.types Point)))
+    [io.github.humbleui.paint :as paint]))
 
-;; "spacing" is independent of "thickness" (not the gap)
 (def dims
-  "Measurements of the table"
+  "Measurements of the table.
+  Lengths in millimetres.
+  'spacing' is independent of 'thickness' (unlike a 'gap')"
   {:board-width (/ (+ 2400 2410) 2)
    :board-height 2405
    
@@ -14,9 +14,9 @@
    :line-collect-left-x 789
    :line-collect-left-spacing 400
    :line-collect-right-margin 791
-   :line-collect-offset-length 183 ; length of protrusion
-   :line-collect-centre-length 195 ; end to end
-   :line-turn-radius 130 ;; approx
+   :line-collect-offset-length 183 ;; length of branch
+   :line-collect-centre-length 195 ;; end to end
+   :line-turn-radius 130 ;; estimate (the turns aren't a perfect arc)
    
    :line-left-margin 175
    :line-top-margin 290

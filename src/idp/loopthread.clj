@@ -2,7 +2,12 @@
   "Utility for creating and controlling a stoppable loop that
   repeatedly executes a function.")
 
-(defn make-loop [tick-fn]
+(defn make-loop
+  "Creates the state for an indefinitely repeating action that
+  can be stopped and restarted. The loop waits for the action to complete.
+  `tick-fn` is invoked with each loop cycle, with one argument: the
+  time (milliseconds) since the last call to `tick-fn`"
+  [tick-fn]
   (agent
     {:thread nil
      :tick-fn tick-fn}
@@ -26,7 +31,7 @@
                          (try
                            (tick-fn (- t2 t))
                            true
-                           (catch InterruptedException e
+                           (catch InterruptedException _
                              false))]
                      (when continue?
                        (recur t2))))))))]

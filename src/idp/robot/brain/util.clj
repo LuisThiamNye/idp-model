@@ -1,4 +1,5 @@
 (ns idp.robot.brain.util
+  "Common functions and phases used throughout the autopilot"
   (:require
     [taoensso.encore :as enc]
     [idp.robot.brain.phase :as phase :refer [defphase]]
@@ -6,6 +7,8 @@
     [idp.robot.state :as rs]))
 
 (defn motor-input
+  "Convenience function for expressing a motor speed input in
+  terms of the superposition of a forwards speed and a clockwise turning speed"
   ([forward-speed] (motor-input forward-speed 0))
   ([forward-speed clockwise-turn-speed]
    {:motor-1 (+ forward-speed clockwise-turn-speed)
@@ -31,9 +34,12 @@
     (* speed (rs/get-active-dt readings))))
 
 (defphase stop
+  "While in this phase, set motor speed to zero"
   :tick (fn [_] {:input (motor-input 0)}))
 
 (defphase set-input
+  "Sets the requested robot input according to the initial state parameters
+  and completes immediately"
   :init (fn [params]
           {:input (select-keys params
                     [:motor-1 :motor-2 :ultrasonic-active?
@@ -43,7 +49,8 @@
 
 (defn get-line-triggers
   "Line trigger = number of times line sensor has switched
-  from seeing black to seeing white since the last response."
+  from seeing black to seeing white since the last response.
+  Returns a 4-tuple of integers."
   [{:keys [line-switches] :as readings}]
   {:pre [(map? readings)]}
   (let [line-sensor-readings (rs/get-line-sensors readings)]
@@ -65,6 +72,8 @@
       line-triggers)))
 
 (defphase tracking-prolonged-condition
+  "Completes only when a specified condition has been satisfied
+  for a certain contiguous duration"
   :init (fn [{:keys [min-duration pred]}]
           {;; determines when phase is done (ms)
            :min-duration (enc/have integer? min-duration)
@@ -222,7 +231,8 @@
 
 (defphase until-straight
   "Infers, based on motor input, when robot starts
-  going approximately straight"
+  going approximately straight.
+  The turn rate must be within a certain range for a certain duration"
   :init (fn [params]
           {:max-turn-rate (:max-turn-rate params 5)})
   :sub-phases
@@ -241,7 +251,8 @@
         cmd))))
 
 (defphase until-turning
-  "Infers, based on motor input, when robot starts turning"
+  "Infers, based on motor input, when robot starts turning.
+  The turn rate must be greater than a certain amount for a certain duration"
   :init
   (fn [{:keys [turn-direction min-turn-rate]}]
     {:min-turn-rate (or min-turn-rate 17) ;; turn amount per active millisecond
@@ -264,6 +275,7 @@
         cmd))))
 
 (defphase position-grabber
+  "Sets the grabber position and completes once the grabber is done moving."
   :init (fn [{:keys [grabber-position]}]
           {:started? false
            :grabber-position grabber-position})
